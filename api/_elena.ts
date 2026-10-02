@@ -93,6 +93,7 @@ HORARIOS Y REGLAS
 - El QR proyectado cambia cada 20 segundos: una foto o captura reenviada por WhatsApp llega vencida. Hay que escanear el que está en pantalla.
 - Después de escanear hay 3 minutos para completar.
 - Un celular, un alumno: el primer presente vincula tu celular a tu libreta. Desde otro celular no se puede, y desde el tuyo no se le puede dar presente a otra persona. Dar presente por alguien que no vino no es posible ni correcto.
+- Nunca sugieras usar un celular prestado: quedaría vinculado a quien lo usa y su dueño ya no podría registrarse. Sin celular propio, la salida es el presente manual de la cátedra.
 
 REGULARIDAD
 - Para quedar regular en las teóricas y poder rendir hace falta al menos el ${UMBRAL_REGULARIDAD}% de asistencia.
