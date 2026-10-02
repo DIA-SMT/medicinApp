@@ -119,6 +119,11 @@ create policy dispositivos_docente on public.dispositivos for all using (public.
 drop policy if exists ajustes_lectura on public.ajustes;
 create policy ajustes_lectura on public.ajustes for select using (true);
 
+-- Supabase concede por defecto todos los permisos de tabla a anon y authenticated; se parte de cero
+-- para que RLS sea la segunda barrera y no la única.
+revoke all on public.alumnos, public.sesiones, public.sesion_secretos, public.dispositivos, public.asistencias,
+  public.docentes, public.ajustes, public.intentos_fallidos from anon, authenticated;
+
 grant select on public.sesiones, public.ajustes to anon, authenticated;
 grant update on public.sesiones to authenticated;
 grant select on public.alumnos to authenticated;
@@ -127,7 +132,7 @@ grant select, insert, update, delete on public.asistencias, public.dispositivos 
 -- ── Núcleo criptográfico ────────────────────────────────────────────────────
 
 create or replace function public._contador() returns bigint
-language sql stable as $$ select floor(extract(epoch from now()) / 20)::bigint $$;
+language sql stable set search_path = public as $$ select floor(extract(epoch from now()) / 20)::bigint $$;
 
 create or replace function public._totp(secreto text, c bigint) returns text
 language plpgsql immutable set search_path = public, extensions as $$
@@ -146,19 +151,19 @@ language sql immutable set search_path = public, extensions as $$
 $$;
 
 create or replace function public._clave_poster(secreto text, sid text) returns text
-language sql immutable as $$ select upper(substr(public._hmac_hex(secreto, 'poster:' || sid), 1, 10)) $$;
+language sql immutable set search_path = public as $$ select upper(substr(public._hmac_hex(secreto, 'poster:' || sid), 1, 10)) $$;
 
 create or replace function public._firma_pase(secreto text, sid text, c bigint, m text) returns text
-language sql immutable as $$ select substr(public._hmac_hex(secreto, 'pase:' || sid || ':' || c || ':' || m), 1, 16) $$;
+language sql immutable set search_path = public as $$ select substr(public._hmac_hex(secreto, 'pase:' || sid || ':' || c || ':' || m), 1, 16) $$;
 
 create or replace function public._ms(t timestamptz) returns bigint
-language sql immutable as $$ select (extract(epoch from t) * 1000)::bigint $$;
+language sql immutable set search_path = public as $$ select (extract(epoch from t) * 1000)::bigint $$;
 
 create or replace function public._abre(s public.sesiones) returns timestamptz
-language sql stable as $$ select (s.fecha + s.apertura) at time zone 'America/Argentina/Tucuman' $$;
+language sql stable set search_path = public as $$ select (s.fecha + s.apertura) at time zone 'America/Argentina/Tucuman' $$;
 
 create or replace function public._cierra(s public.sesiones) returns timestamptz
-language sql stable as $$
+language sql stable set search_path = public as $$
   select case
     when s.manual_hasta is not null and now() < s.manual_hasta then s.manual_hasta
     when s.cerrada_en is not null and now() >= s.cerrada_en then s.cerrada_en
@@ -166,7 +171,7 @@ language sql stable as $$
 $$;
 
 create or replace function public._estado(s public.sesiones) returns text
-language sql stable as $$
+language sql stable set search_path = public as $$
   select case
     when s.manual_hasta is not null and now() < s.manual_hasta then 'abierta'
     when s.cerrada_en is not null and now() >= s.cerrada_en then 'cerrada'
@@ -176,7 +181,7 @@ language sql stable as $$
 $$;
 
 create or replace function public._ip() returns text
-language sql stable as $$
+language sql stable set search_path = public as $$
   select coalesce(split_part(current_setting('request.headers', true)::json ->> 'x-forwarded-for', ',', 1), 'desconocida')
 $$;
 
@@ -241,7 +246,7 @@ begin
 end $$;
 
 create or replace function public._nombre_corto(nombre text) returns text
-language sql immutable as $$
+language sql immutable set search_path = public as $$
   select trim(split_part(nombre, ',', 1)) || ', ' || left(trim(split_part(nombre, ',', 2)), 1) || '.'
 $$;
 
@@ -353,12 +358,16 @@ begin
   );
 end $$;
 
--- Las funciones internas no se exponen por la API.
+-- Las funciones internas no se exponen por la API, y las de cátedra no las ejecuta el anónimo
+-- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
   public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text),
-  public._bloqueado(), public._ip()
+  public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
+  public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text)
 from public, anon, authenticated;
+revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente()
+from public, anon;
 
 grant execute on function public.abrir_pase(text, text), public.identificar(text, text, text, text),
   public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
