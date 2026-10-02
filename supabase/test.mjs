@@ -159,5 +159,12 @@ const v = await one(`select
   from sesiones s where id = '2026-10-09'`)
 ok(v.dentro && v.antes && v.fuera, 'ventana 07:30–08:10 en hora de Tucumán', v)
 
+// ── Cupo de Elena ──
+let permitidas = 0
+for (let i = 0; i < 21; i++) if ((await one(`select elena_cupo('203.0.113.7') ok`)).ok) permitidas++
+ok(permitidas === 20, 'Elena: 20 preguntas cada 10 min por IP', permitidas)
+ok((await one(`select elena_cupo('203.0.113.8') ok`)).ok === true, 'Elena: otra IP tiene su propio cupo')
+ok((await one(`select count(*)::int n from elena_uso where ip_hash like '203.%'`)).n === 0, 'Elena: la IP se guarda con hash')
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)

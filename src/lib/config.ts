@@ -15,7 +15,7 @@ export const TOTP_TOLERANCIA = 1 // ± pasos aceptados para absorber desfase de 
 export const PASE_TTL_S = 180
 
 /** Porcentaje mínimo de asistencia a teóricas para quedar "Regular". */
-export const UMBRAL_REGULARIDAD = 80
+export const UMBRAL_REGULARIDAD = 70
 
 /**
  * Geocercado: 'off' no pide ubicación (registro más liviano: sólo DNI), 'registrar' la guarda y marca

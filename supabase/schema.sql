@@ -374,6 +374,31 @@ grant execute on function public.abrir_pase(text, text), public.identificar(text
 to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente() to authenticated;
 
+-- ── Elena (asistente de la app): cupo de uso para acotar el costo del modelo ──
+-- La función de Vercel /api/elena la consulta antes de cada respuesta. Se guarda la IP con hash, nunca en claro.
+
+create table if not exists public.elena_uso (
+  ip_hash text not null,
+  en      timestamptz not null default now()
+);
+create index if not exists idx_elena_uso on public.elena_uso (ip_hash, en desc);
+alter table public.elena_uso enable row level security;
+revoke all on public.elena_uso from anon, authenticated;
+
+create or replace function public.elena_cupo(p_ip text) returns boolean
+language plpgsql security definer set search_path = public, extensions as $$
+declare h text := encode(digest(coalesce(p_ip, ''), 'sha256'), 'hex');
+begin
+  -- 20 preguntas cada 10 min por IP y 1.500 por día en total
+  if (select count(*) from elena_uso where en > now() - interval '1 day') >= 1500 then return false; end if;
+  if (select count(*) from elena_uso where ip_hash = h and en > now() - interval '10 minutes') >= 20 then return false; end if;
+  insert into elena_uso (ip_hash) values (h);
+  delete from elena_uso where en < now() - interval '2 days';
+  return true;
+end $$;
+revoke execute on function public.elena_cupo(text) from public;
+grant execute on function public.elena_cupo(text) to anon, authenticated;
+
 -- Tiempo real para el contador del proyector.
 do $$ begin
   alter publication supabase_realtime add table public.asistencias;

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { HashRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { Background } from './components/Background'
+import { Elena } from './components/Elena'
 import { Nav } from './components/Nav'
 import { Acceso } from './pages/Acceso'
 
@@ -51,6 +52,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
+      <Elena />
     </HashRouter>
   )
 }

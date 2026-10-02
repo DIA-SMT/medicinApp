@@ -59,7 +59,13 @@ const tarjetaClase = (s: Sesion) => `
     <div class="mt-1 font-semibold leading-snug text-tinta">${esc(s.temas.map((t) => t.titulo).join(' + '))}</div>
   </div>`
 
-const PIE = `<p class="mt-auto pt-8 text-center font-mono text-[0.6rem] tracking-[0.15em] text-slate-400 uppercase">Cátedra de Ginecología · Facultad de Medicina UNT</p>`
+// Elena (la asistente) vive en la app: se abre en otra pestaña para no perder el registro a medias.
+const enlaceElena = (pregunta?: string) => `/#/?elena=1${pregunta ? `&q=${encodeURIComponent(pregunta)}` : ''}`
+
+const PIE = `<div class="mt-auto pt-8 text-center">
+  <a href="${enlaceElena()}" target="_blank" rel="noopener" class="text-xs font-medium text-rosa underline-offset-4 hover:underline">¿Dudas? Preguntale a Elena</a>
+  <p class="mt-3 font-mono text-[0.6rem] tracking-[0.15em] text-slate-400 uppercase">Cátedra de Ginecología · Facultad de Medicina UNT</p>
+</div>`
 
 function pintar(sesion: Sesion | undefined, contenido: string) {
   app.innerHTML = `${MARCA}${sesion ? tarjetaClase(sesion) : ''}<section class="entrada mt-6">${contenido}</section>${PIE}`
@@ -92,6 +98,7 @@ function mostrarError(sesion: Sesion | undefined, error: CodigoError, detalle?: 
       <div class="mt-6 flex flex-col gap-2">
         ${e.reintentar && reintentar ? '<button id="reintentar" class="btn btn-primario w-full !py-3">Reintentar</button>' : ''}
         <a href="/p/" class="btn btn-secundario w-full">Ingresar el código a mano</a>
+        <a href="${enlaceElena(`Al dar el presente me apareció «${e.titulo}». ¿Qué hago?`)}" target="_blank" rel="noopener" class="mt-1 text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Qué hago? Preguntale a Elena</a>
       </div>
       <div class="mt-3 font-mono text-[0.6rem] tracking-widest text-slate-300">${error}</div>
     </div>`,
