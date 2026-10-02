@@ -1,0 +1,209 @@
+/* Sistema visual "clínico": blanco, líneas finas, rosa ginecología + cian tecnológico.
+   Compartido por la app (index.css) y por la página liviana de registro (presente.css). */
+
+@theme {
+  --font-display: 'Space Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+
+  --color-tinta: #0b1220;
+  --color-linea: #e7eaf1;
+  --color-fondo: #fafbfd;
+
+  --color-rosa: #e0246f;
+  --color-rosa-suave: #fdecf3;
+  --color-rosa-oscuro: #b3175a;
+  --color-cian: #0aa2c0;
+  --color-cian-suave: #e7f8fb;
+  --color-cian-oscuro: #08798f;
+  --color-violeta: #6b5cf6;
+  --color-violeta-suave: #f0eefe;
+  --color-vital: #0e9f68;
+  --color-vital-suave: #e7f7ef;
+  --color-ambar: #c27c03;
+  --color-ambar-suave: #fff6e2;
+  --color-unt: #1f4fb8;
+
+  --animate-deriva: deriva 24s ease-in-out infinite alternate;
+  --animate-latido: latido 1.6s ease-out infinite;
+  --animate-barrido: barrido 3.2s linear infinite;
+
+  @keyframes deriva {
+    0% { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(5%, 4%, 0) scale(1.12); }
+  }
+  @keyframes latido {
+    0% { transform: scale(1); opacity: 0.8; }
+    70%, 100% { transform: scale(2.6); opacity: 0; }
+  }
+  @keyframes barrido {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+}
+
+html,
+body {
+  background: var(--color-fondo);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgb(224 36 111 / 0.18);
+}
+
+@layer components {
+  .tarjeta {
+    background: #fff;
+    border: 1px solid var(--color-linea);
+    border-radius: 1.25rem;
+    box-shadow:
+      0 1px 2px rgb(15 23 42 / 0.04),
+      0 14px 36px -22px rgb(15 23 42 / 0.22);
+  }
+
+  /* Esquinas de monitor médico */
+  .hud {
+    position: relative;
+  }
+  .hud::before,
+  .hud::after {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+    border: 0 solid var(--color-cian);
+  }
+  .hud::before {
+    top: -1px;
+    left: -1px;
+    border-top-width: 2px;
+    border-left-width: 2px;
+    border-top-left-radius: 1.25rem;
+  }
+  .hud::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom-width: 2px;
+    border-right-width: 2px;
+    border-bottom-right-radius: 1.25rem;
+    border-color: var(--color-rosa);
+  }
+
+  .etiqueta {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #64748b;
+  }
+
+  .texto-gradiente {
+    background: linear-gradient(100deg, var(--color-rosa) 0%, #9b3fd6 52%, var(--color-cian) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.85rem;
+    padding: 0.7rem 1.1rem;
+    font-weight: 600;
+    font-size: 0.92rem;
+    white-space: nowrap;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--color-cian);
+    outline-offset: 2px;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .btn-primario {
+    color: #fff;
+    background: linear-gradient(135deg, var(--color-rosa), #a42fc4 60%, var(--color-violeta));
+    box-shadow: 0 10px 24px -12px rgb(224 36 111 / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.25);
+  }
+  .btn-primario:hover {
+    box-shadow: 0 14px 30px -12px rgb(224 36 111 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.3);
+  }
+  .btn-secundario {
+    color: #334155;
+    background: #fff;
+    border: 1px solid #dfe3ec;
+  }
+  .btn-secundario:hover {
+    color: var(--color-tinta);
+    border-color: var(--color-cian);
+    box-shadow: 0 0 0 3px var(--color-cian-suave);
+  }
+
+  .campo {
+    width: 100%;
+    border-radius: 0.9rem;
+    background: #fff;
+    border: 1px solid #d5dae5;
+    padding: 0.85rem 1rem;
+    color: var(--color-tinta);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .campo::placeholder {
+    color: #94a3b8;
+  }
+  .campo:focus {
+    border-color: var(--color-cian);
+    box-shadow: 0 0 0 4px var(--color-cian-suave);
+  }
+}
+
+/* ── Animaciones en CSS puro: el contenido nunca depende de que corra JavaScript ── */
+@keyframes entrada {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes trazo {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes onda {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  80%, 100% { transform: scale(1.5); opacity: 0; }
+}
+@keyframes destello {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.entrada { animation: entrada 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.pop { animation: pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.trazo { stroke-dasharray: 1; animation: trazo 0.5s 0.25s ease-out both; }
+.onda { animation: onda 2s ease-out infinite both; }
+.destello { animation: destello 1.2s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

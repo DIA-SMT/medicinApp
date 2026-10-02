@@ -1,0 +1,116 @@
+import type { Ventana } from '../lib/time'
+
+export interface Alumno {
+  libreta: string
+  nombre: string
+  dni: string
+  folio: string
+  orden: number
+}
+
+export type Metodo = 'qr' | 'poster' | 'manual'
+
+export interface Registro {
+  sesionId: string
+  libreta: string
+  nombre: string
+  marcadoEn: number
+  metodo: Metodo
+  distanciaM?: number | null
+  precisionM?: number | null
+  huella?: string | null
+  /** Sólo en cargas manuales: por qué se dio el presente y quién lo cargó. */
+  motivo?: string | null
+  cargadoPor?: string | null
+}
+
+export interface ResumenSesion {
+  sesionId: string
+  presentes: number
+  total: number
+  ultimos: { nombre: string; marcadoEn: number }[]
+}
+
+export type CodigoError =
+  | 'SESION_INEXISTENTE'
+  | 'PROGRAMADA'
+  | 'CERRADA'
+  | 'CODIGO_INVALIDO'
+  | 'PASE_VENCIDO'
+  | 'DNI_DESCONOCIDO'
+  | 'DISPOSITIVO_AJENO'
+  | 'DISPOSITIVO_OCUPADO'
+  | 'FIRMA_INVALIDA'
+  | 'FUERA_DE_RANGO'
+  | 'SIN_CRYPTO'
+  | 'NO_AUTORIZADO'
+  | 'RED'
+
+export type Fallo = { ok: false; error: CodigoError; detalle?: string }
+
+export type ResultadoPase = { ok: true; pase: string; metodo: Metodo; expiraEn: number } | Fallo
+
+export type ResultadoIdentificacion =
+  | { ok: true; nombre: string; libreta: string; vinculo: 'este' | 'libre' | 'otro' }
+  | Fallo
+
+export type ResultadoMarca =
+  | { ok: true; estado: 'REGISTRADO' | 'YA_REGISTRADO'; marcadoEn: number; comprobante: string; nombre: string; distanciaM: number | null }
+  | Fallo
+
+export interface PedidoMarca {
+  sesionId: string
+  pase: string
+  dni: string
+  huella: string
+  publicJwk: JsonWebKey
+  firma: string
+  ts: number
+  ubicacion: { lat: number; lng: number; precision: number } | null
+}
+
+export interface DispositivoVinculado {
+  libreta: string
+  huella: string
+  creadoEn: number
+}
+
+/** Lo que usa el celular del alumno y las páginas públicas: pocas llamadas, sin dependencias. */
+export interface PublicoApi {
+  ventanas(): Promise<Record<string, Ventana>>
+  abrirPase(sesionId: string, codigo: string): Promise<ResultadoPase>
+  identificar(sesionId: string, pase: string, dni: string, huella: string): Promise<ResultadoIdentificacion>
+  marcar(p: PedidoMarca): Promise<ResultadoMarca>
+}
+
+/** Lo que usa la cátedra: proyector, póster y panel. Se carga recién al entrar con usuario. */
+export interface AdminApi {
+  modo: 'demo' | 'supabase'
+  autenticado(): Promise<boolean>
+  ingresar(email: string, clave: string): Promise<{ ok: boolean; error?: string }>
+  salir(): Promise<void>
+  ventanas(): Promise<Record<string, Ventana>>
+  secreto(sesionId: string): Promise<string>
+  guardarVentana(sesionId: string, v: Ventana): Promise<void>
+  resumen(sesionId: string): Promise<ResumenSesion>
+  /** Llama a `cb` cada vez que cambian los registros. Devuelve la función para desuscribirse. */
+  suscribir(cb: () => void): () => void
+  alumnos(): Promise<Alumno[]>
+  registros(): Promise<Registro[]>
+  /** Presente manual para varios alumnos a la vez (también antes de la clase). */
+  marcarManual(sesionId: string, libretas: string[], motivo: string): Promise<number>
+  quitarPresente(sesionId: string, libretas: string[]): Promise<void>
+  dispositivos(): Promise<DispositivoVinculado[]>
+  liberarDispositivo(libreta: string): Promise<void>
+
+  /** Herramientas sólo disponibles en modo demostración. */
+  demo?: {
+    simularLlegadas(sesionId: string, cantidad: number): Promise<void>
+    poblarHistorico(): Promise<void>
+    reiniciar(): Promise<void>
+  }
+}
+
+declare global {
+  const __DEMO__: boolean
+}

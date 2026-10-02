@@ -1,0 +1,16 @@
+/* CSS de la página de registro: sólo las utilidades que usa esta página (sin escanear la app). */
+@import 'tailwindcss' source(none);
+@source './';
+@source '../../p/index.html';
+@import '../tema.css';
+
+/* Sin tipografías web: la de sistema carga en 0 ms */
+html,
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background:
+    radial-gradient(ellipse 80% 40% at 0% 0%, rgb(224 36 111 / 0.08), transparent),
+    radial-gradient(ellipse 70% 40% at 100% 0%, rgb(10 162 192 / 0.08), transparent),
+    #fff;
+  background-attachment: fixed;
+}

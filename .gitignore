@@ -1,0 +1,19 @@
+node_modules
+dist
+.vercel
+.claude/
+
+# Variables de entorno locales (la anon key va en Vercel; la service role NUNCA va al repo)
+.env
+.env.local
+.env.*.local
+*.local
+
+# Datos personales del padrón y documentación interna de la cátedra: no versionar
+data/alumnos.json
+supabase/seed.sql
+*.pdf
+contexto.txt
+*transcript*.txt
+/Logo-UNT.png
+tsconfig.tsbuildinfo

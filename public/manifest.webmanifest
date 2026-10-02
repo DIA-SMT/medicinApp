@@ -1,0 +1,10 @@
+{
+  "name": "CICLO · Ginecología FM-UNT",
+  "short_name": "CICLO",
+  "description": "Asistencia con QR dinámico — Cátedra de Ginecología, Facultad de Medicina UNT",
+  "start_url": "/p/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
