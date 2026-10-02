@@ -58,7 +58,8 @@ código o en lo que se publica.
 - **Frontend:** Vercel, conectado a este repo (cada push a `main` despliega). Variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 - **Base:** Supabase. Una sola vez:
   1. SQL Editor → pegar y ejecutar `supabase/schema.sql`.
-  2. Cargar sesiones y padrón: `npm run seed` genera `supabase/seed.sql` (o se cargan por API con la service role, que **nunca** va al repo ni a Vercel).
+  2. Cargar sesiones y padrón: `SUPABASE_SERVICE_ROLE_KEY=… npm run cargar-padron` (la service role sólo se pasa por
+     variable de entorno en la terminal; **nunca** va al repo ni a Vercel). Alternativa: `npm run seed` y pegar `supabase/seed.sql`.
   3. Authentication → Users → crear la cuenta de la cátedra y habilitarla: `insert into public.docentes (email) values ('…');`
   4. Authentication → Providers → Email: desactivar «Allow new users to sign up».
 
