@@ -37,11 +37,15 @@ export function crearSupabaseAdmin(): AdminApi {
 
     async ingresar(email, clave) {
       const { error } = await sb.auth.signInWithPassword({ email, password: clave })
-      if (error) return { ok: false, error: 'Correo o contraseña incorrectos.' }
+      if (error) {
+        if (/confirm/i.test(error.message)) return { ok: false, error: 'La cuenta todavía no está confirmada. Pedile al administrador que la confirme.' }
+        if (/fetch|network/i.test(error.message)) return { ok: false, error: 'Sin conexión. Revisá internet y probá de nuevo.' }
+        return { ok: false, error: 'Correo o contraseña incorrectos. Revisá mayúsculas y que no haya espacios.' }
+      }
       const { data: ok } = await sb.rpc('es_docente')
       if (ok !== true) {
         await sb.auth.signOut()
-        return { ok: false, error: 'Esta cuenta no está habilitada para la cátedra.' }
+        return { ok: false, error: 'Esta cuenta existe pero no está habilitada para la cátedra. Pedile al administrador que la habilite.' }
       }
       return { ok: true }
     },

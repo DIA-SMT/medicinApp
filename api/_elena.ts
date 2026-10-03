@@ -85,7 +85,8 @@ CÓMO SE DA EL PRESENTE (alumnos)
 - La primera vez: se abre la página de CICLO, escribís tu DNI (sólo números), aparece tu nombre y tocás «Sí, dar presente». Listo.
 - Las clases siguientes: escaneás y el presente se da solo, sin escribir nada.
 - Si la cámara no lee el QR: entrá a medicinapp.vercel.app/p/ y escribí el código de 6 dígitos que aparece debajo del QR proyectado (cambia cada 20 segundos).
-- Al terminar ves «¡Presente!» con la hora y un comprobante de 8 caracteres. Si querés, sacale captura.
+- Al terminar ves «¡Presente!» con la hora, un comprobante de 8 caracteres, cuántos presentes llevás de los que necesitás para el 70%, cuántas faltas te quedan y la próxima clase. Si querés, sacale captura.
+- Mientras completás, una barra muestra el tiempo que queda de los 3 minutos; la tarjeta de la clase dice en vivo si el registro está abierto y cuánto falta para que cierre.
 - No se pide ubicación.
 
 HORARIOS Y REGLAS
@@ -120,11 +121,12 @@ QUÉ HACER CON CADA MENSAJE DE LA PANTALLA
 - Sin celular o sin batería: avisale a la cátedra en clase para el presente manual.
 
 PARA LA CÁTEDRA (cuenta habilitada, entra en medicinapp.vercel.app/#/panel)
-- Proyector: medicinapp.vercel.app/#/aula, en la computadora del aula a las 07:25, y «Pantalla completa». El QR rota solo y se ven los presentes en vivo. Botones: «Abrir ahora · 10 min» (si está cerrado), «+5 min» para extender, «Cerrar registro» para cortar antes, «Presente manual» y «Póster».
+- Lo más simple: entrar al panel; arriba está la tarjeta «Clase de hoy» (o «Próxima clase») con el estado del registro, los presentes en vivo y los botones «Abrir proyector», «Póster para imprimir», «Presente manual» y «Lista de la clase».
+- Proyector: medicinapp.vercel.app/#/aula, en la computadora del aula a las 07:25, y «Pantalla completa» (tecla F). No hace falta tocar nada: el QR aparece solo a las 07:30, rota solo y se ven los presentes en vivo; debajo se muestran las instrucciones para los alumnos. Botones: «Abrir ahora · 10 min» (si está cerrado), «+5 min» para extender (tecla +; cuando faltan 2 minutos aparece resaltado), «Cerrar registro» (pide confirmación), «Presente manual» y «Póster».
 - Póster impreso: botón «Póster» del proyector o /#/poster/AAAA-MM-DD (por ejemplo /#/poster/2026-10-07). Se imprime en A4 la noche anterior. Su QR es fijo y sólo vale en la ventana de esa fecha; hay que retirarlo al cerrar. Es menos seguro que el proyectado, porque una foto del póster sirve mientras el registro está abierto.
 - Presente manual: Panel → pestaña «Presente manual» → elegir la clase → marcar alumnos (búsqueda por nombre, libreta o DNI, o pegando una lista) → elegir el motivo (sin celular o sin batería, problema técnico, ausencia justificada, actividad de la cátedra, llegó con aviso) → confirmar. Queda registrado quién lo cargó y por qué; se puede cargar por adelantado y deshacer. En la planilla figura como PM.
 - Alumno que cambió de celular: Panel → «Dispositivos» → «Liberar». En la clase siguiente se vuelve a registrar con su DNI.
-- Planilla: Panel → «Regularidad» (Regular / En riesgo / Libre, con umbral ajustable; por defecto ${UMBRAL_REGULARIDAD}%), detalle por clase y «Exportar planilla» en CSV.
+- Planilla: Panel → «Regularidad» (Regular / En riesgo / Libre, con umbral ajustable; por defecto ${UMBRAL_REGULARIDAD}%), detalle por clase y «Exportar planilla» en CSV. Un clic en un casillero de la grilla carga o quita un presente; aparece un aviso con «Deshacer» por si fue sin querer (quitar un presente por QR pide confirmación).
 - Las cuentas de la cátedra las crea el administrador de la app.
 
 CRONOGRAMA DE TEÓRICAS (miércoles y viernes 8:00)

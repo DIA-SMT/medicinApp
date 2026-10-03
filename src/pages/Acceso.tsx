@@ -1,4 +1,4 @@
-import { LoaderCircle, LockKeyhole } from 'lucide-react'
+import { Eye, EyeOff, LoaderCircle, LockKeyhole, ScanLine } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { UteroMark } from '../components/Logo'
 import { AdminContext, cargarAdmin } from '../data/admin'
@@ -15,6 +15,7 @@ export function Acceso({ children }: { children: React.ReactNode }) {
   const [clave, setClave] = useState('')
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [verClave, setVerClave] = useState(false)
 
   useEffect(() => {
     cargarAdmin()
@@ -54,18 +55,34 @@ export function Acceso({ children }: { children: React.ReactNode }) {
             <div className="font-display text-xl font-semibold text-tinta">Docentes y ayudantes</div>
           </div>
         </div>
-        <label className="etiqueta mt-7 block" htmlFor="email">
+        <p className="mt-4 text-sm text-slate-500">Para abrir el proyector, imprimir el póster y ver la planilla. La cuenta la crea el administrador de la app.</p>
+        <label className="etiqueta mt-6 block" htmlFor="email">
           Correo
         </label>
         <input id="email" type="email" autoComplete="username" className="campo mt-2" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <label className="etiqueta mt-4 block" htmlFor="clave">
           Contraseña
         </label>
-        <input id="clave" type="password" autoComplete="current-password" className="campo mt-2" value={clave} onChange={(e) => setClave(e.target.value)} required />
+        <div className="relative mt-2">
+          <input id="clave" type={verClave ? 'text' : 'password'} autoComplete="current-password" className="campo !pr-11" value={clave} onChange={(e) => setClave(e.target.value)} required />
+          <button
+            type="button"
+            onClick={() => setVerClave((v) => !v)}
+            className="absolute top-1/2 right-2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:text-tinta"
+            aria-label={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+            title={verClave ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+          >
+            {verClave ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
         {error && <p className="mt-3 text-sm text-rosa-oscuro">{error}</p>}
         <button className="btn btn-primario mt-6 w-full !py-3" disabled={enviando || !api}>
           {enviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />} Ingresar
         </button>
+        <p className="mt-3 text-center text-xs text-slate-400">¿Te olvidaste la contraseña? Pedile al administrador de la app que te la renueve.</p>
+        <a href="/p/" className="mt-5 flex items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-600 hover:border-rosa/50 hover:text-tinta">
+          <ScanLine className="h-4 w-4 text-rosa" /> ¿Sos alumno? Para dar presente no necesitás cuenta
+        </a>
       </form>
     </div>
   )

@@ -1,15 +1,19 @@
-import { Activity, CalendarCheck, CircleCheck, ClipboardList, Database, Download, FingerprintPattern, LogOut, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, ClipboardList, Database, Download, FingerprintPattern, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Kpi } from '../components/ui'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useAvisos } from '../components/Avisos'
+import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { Alumno, DispositivoVinculado, Registro } from '../data/types'
 import { MOTIVOS_MANUALES, UMBRAL_REGULARIDAD } from '../lib/config'
 import { descargarCsv } from '../lib/csv'
-import { AREAS, CRONOGRAMA, sesionPorId, type Sesion } from '../lib/cronograma'
+import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
 import { huellaCorta } from '../lib/device'
 import { pct, sinTildes } from '../lib/format'
-import { fechaCorta, hoyIso, horaArt } from '../lib/time'
+import { useNow, useVentanas } from '../lib/hooks'
+import { cuenta as cuentaRegresiva, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionVigente, ventanaDefault } from '../lib/time'
+
+type Avisar = (texto: string, deshacer?: () => Promise<unknown> | void) => void
 
 type Condicion = 'Regular' | 'En riesgo' | 'Libre'
 const COLOR_COND: Record<Condicion, string> = { Regular: '#0e9f68', 'En riesgo': '#c27c03', Libre: '#e0246f' }
@@ -45,8 +49,71 @@ function SelectorSesion({ valor, onCambiar }: { valor: string; onCambiar: (id: s
   )
 }
 
+/** Lo primero que ve el docente: qué clase toca, cómo está el registro y los accesos para esa clase. */
+function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro[]; total: number; onManual: (id: string) => void; onVer: (id: string) => void }) {
+  const now = useNow(1000)
+  const { ventanas } = useVentanas()
+  const s = sesionVigente(ventanas, now)
+  if (!s) return null
+  const info = infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now)
+  const esHoy = s.fecha === hoyIso(now)
+  const n = registros.filter((r) => r.sesionId === s.id).length
+  const estado =
+    info.estado === 'abierta'
+      ? `Registro abierto: cierra a las ${hmArt(info.cierra)} (en ${cuentaRegresiva(info.cierra - now)}). Los presentes se suman solos.`
+      : info.estado === 'programada' && esHoy
+        ? `El registro abre solo a las ${hmArt(info.abre)} (en ${cuentaRegresiva(info.abre - now)}). Abrí el proyector unos minutos antes.`
+        : info.estado === 'programada'
+          ? `El registro abre solo a las ${hmArt(info.abre)} y cierra a las ${hmArt(info.cierra)}. Si van a usar póster, imprimilo la noche anterior.`
+          : `El registro cerró a las ${hmArt(info.cierra)}.`
+
+  return (
+    <div className="tarjeta hud mt-8 overflow-hidden">
+      <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="etiqueta">
+              {esHoy ? 'Clase de hoy' : 'Próxima clase'} · Nº {String(s.n).padStart(2, '0')} · {diaSemana(s.fecha)} {fechaCorta(s.fecha)}
+            </span>
+            <PildoraEstado estado={info.estado} />
+          </div>
+          <h2 className="mt-2 font-display text-2xl leading-tight font-semibold text-tinta sm:text-3xl">{s.temas.map((t) => t.titulo).join(' + ')}</h2>
+          <p className="mt-1 text-sm text-slate-500">{docentesSesion(s)}</p>
+          <p className={`mt-3 text-sm font-medium ${info.estado === 'abierta' ? 'text-vital' : 'text-slate-600'}`}>{estado}</p>
+        </div>
+        {(esHoy || n > 0) && (
+          <div className="flex items-baseline gap-2 lg:flex-col lg:items-end lg:gap-0">
+            <span className="etiqueta">Presentes</span>
+            <span className="font-display text-5xl font-bold text-tinta tabular-nums">
+              <span key={n} className="entrada inline-block">
+                {n}
+              </span>
+              <span className="text-2xl text-slate-300"> / {total}</span>
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 border-t border-linea bg-slate-50/70 px-5 py-3 sm:px-6">
+        <Link to={`/aula/${s.id}`} className="btn btn-primario">
+          <Projector className="h-4 w-4" /> Abrir proyector
+        </Link>
+        <Link to={`/poster/${s.id}`} className="btn btn-secundario">
+          <Printer className="h-4 w-4" /> Póster para imprimir
+        </Link>
+        <button className="btn btn-secundario" onClick={() => onManual(s.id)}>
+          <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
+        </button>
+        <button className="btn btn-secundario" onClick={() => onVer(s.id)}>
+          <ListChecks className="h-4 w-4 text-cian" /> Lista de la clase
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function Panel() {
   const api = useAdmin()
+  const { nodo: aviso, mostrar } = useAvisos()
   const [params, setParams] = useSearchParams()
   const hoy = hoyIso()
   const tab = (params.get('tab') as Pestana) || 'regularidad'
@@ -66,6 +133,7 @@ export function Panel() {
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState<Condicion | 'Todos'>('Todos')
   const [umbral, setUmbral] = useState(leerUmbral)
+  const [busquedaDisp, setBusquedaDisp] = useState('')
 
   const cargar = useCallback(() => {
     Promise.all([api.alumnos(), api.registros(), api.dispositivos()])
@@ -120,6 +188,22 @@ export function Panel() {
   if (error) return <p className="mx-auto max-w-3xl p-10 text-rosa-oscuro">No se pudieron cargar los datos: {error}</p>
   if (!alumnos) return <p className="mx-auto max-w-3xl p-10 font-mono text-slate-400">Cargando padrón…</p>
 
+  /** Clic en un casillero de la grilla: se corrige al instante y el aviso permite deshacerlo. */
+  const alternarPresente = async (s: Sesion, a: Alumno, r: Registro | undefined) => {
+    const quien = `${a.nombre.split(',')[0]} · ${fechaCorta(s.fecha)}`
+    if (r) {
+      // Un presente por QR no se recupera tal cual (volvería como manual): para ese caso se pregunta antes.
+      if (r.metodo !== 'manual' && !confirm(`¿Quitar el presente que ${a.nombre} dio con el QR el ${fechaCorta(s.fecha)}?`)) return
+      await api.quitarPresente(s.id, [a.libreta])
+      cargar()
+      mostrar(`Presente quitado: ${quien}`, r.metodo === 'manual' ? () => api.marcarManual(s.id, [a.libreta], r.motivo ?? 'Corrección desde el panel').then(cargar) : undefined)
+    } else {
+      await api.marcarManual(s.id, [a.libreta], 'Corrección desde el panel')
+      cargar()
+      mostrar(`Presente manual cargado: ${quien}`, () => api.quitarPresente(s.id, [a.libreta]).then(cargar))
+    }
+  }
+
   const promedio = filas.length ? Math.round(filas.reduce((s, f) => s + f.porcentaje, 0) / filas.length) : 0
   const cuenta = (c: Condicion) => filas.filter((f) => f.condicion === c).length
   const manuales = registros.filter((r) => r.metodo === 'manual').length
@@ -158,14 +242,16 @@ export function Panel() {
             <Download className="h-4 w-4" /> Exportar planilla
           </button>
           {api.modo === 'supabase' && (
-            <button className="btn btn-secundario" onClick={() => api.salir().then(() => location.reload())} title="Cerrar sesión">
-              <LogOut className="h-4 w-4" />
+            <button className="btn btn-secundario" onClick={() => api.salir().then(() => location.reload())} title="Cerrar la sesión de la cátedra en esta computadora">
+              <LogOut className="h-4 w-4" /> Salir
             </button>
           )}
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
+
+      <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi etiqueta="Alumnos" valor={alumnos.length} icono={Users} nota="Planilla de regularidades" />
         <Kpi etiqueta="Clases con registro" valor={computables.length} sufijo={`/ ${CRONOGRAMA.length}`} icono={CalendarCheck} nota={`${restantes} por dictar`} />
         <Kpi etiqueta="Asistencia media" valor={promedio} sufijo="%" color="#08798f" icono={Activity} />
@@ -270,7 +356,7 @@ export function Panel() {
                       return (
                         <td key={s.id} className="border-b border-slate-100 px-1 py-2 text-center">
                           <button
-                            onClick={() => (r ? api.quitarPresente(s.id, [f.a.libreta]) : api.marcarManual(s.id, [f.a.libreta], 'Corrección desde el panel')).then(cargar)}
+                            onClick={() => alternarPresente(s, f.a, r)}
                             className="mx-auto block h-5 w-5 rounded-md transition hover:scale-125 hover:ring-2 hover:ring-tinta/30"
                             style={{ background: color }}
                             title={r ? `${horaArt(r.marcadoEn)} · ${r.metodo === 'manual' ? `manual: ${r.motivo ?? ''}` : r.metodo} — clic para quitar` : 'Ausente — clic para marcar presente (manual)'}
@@ -312,9 +398,9 @@ export function Panel() {
         </div>
       )}
 
-      {tab === 'manual' && <CargaManual sesionId={sesionSel} onSesion={(s) => ir({ s })} alumnos={alumnos} registros={registros} recargar={cargar} />}
+      {tab === 'manual' && <CargaManual sesionId={sesionSel} onSesion={(s) => ir({ s })} alumnos={alumnos} registros={registros} recargar={cargar} avisar={mostrar} />}
 
-      {tab === 'clase' && <DetalleClase sesion={sesionPorId(sesionSel)!} alumnos={alumnos} registros={registros} onCambiar={(s) => ir({ s })} recargar={cargar} />}
+      {tab === 'clase' && <DetalleClase sesion={sesionPorId(sesionSel)!} alumnos={alumnos} registros={registros} onCambiar={(s) => ir({ s })} recargar={cargar} avisar={mostrar} />}
 
       {tab === 'dispositivos' && (
         <div className="tarjeta hud mt-4 p-5">
@@ -323,10 +409,17 @@ export function Panel() {
             Cada alumno queda vinculado al primer celular con el que da el presente. Si cambia de teléfono o borra los datos del navegador, liberá el vínculo y el
             próximo registro creará uno nuevo.
           </p>
-          <div className="mt-4 divide-y divide-slate-100">
+          {dispositivos.length > 0 && (
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input className="campo !py-2.5 !pl-9" placeholder="Buscar alumno por nombre, libreta o DNI" value={busquedaDisp} onChange={(e) => setBusquedaDisp(e.target.value)} />
+            </div>
+          )}
+          <div className="mt-2 divide-y divide-slate-100">
             {dispositivos.length === 0 && <p className="py-6 text-center text-sm text-slate-500">Ningún dispositivo vinculado todavía.</p>}
             {dispositivos
               .map((d) => ({ d, a: alumnos.find((x) => x.libreta === d.libreta) }))
+              .filter(({ d, a }) => !busquedaDisp.trim() || sinTildes(`${a?.nombre ?? ''} ${d.libreta} ${a?.dni ?? ''}`).includes(sinTildes(busquedaDisp.trim())))
               .sort((x, y) => (x.a?.nombre ?? '').localeCompare(y.a?.nombre ?? ''))
               .map(({ d, a }) => (
                 <div key={d.huella} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -336,7 +429,16 @@ export function Panel() {
                       {d.libreta} · huella {huellaCorta(d.huella, 6)} · desde {fechaCorta(new Date(d.creadoEn).toISOString().slice(0, 10))}
                     </div>
                   </div>
-                  <button className="btn btn-secundario !py-1.5 !text-xs" onClick={() => confirm(`¿Liberar el dispositivo de ${a?.nombre ?? d.libreta}?`) && api.liberarDispositivo(d.libreta).then(cargar)}>
+                  <button
+                    className="btn btn-secundario !py-1.5 !text-xs"
+                    onClick={() =>
+                      confirm(`¿Liberar el celular de ${a?.nombre ?? d.libreta}? En la próxima clase se registra de nuevo con su DNI.`) &&
+                      api.liberarDispositivo(d.libreta).then(() => {
+                        cargar()
+                        mostrar(`Celular liberado: ${a?.nombre ?? d.libreta}`)
+                      })
+                    }
+                  >
                     <Unlink className="h-3.5 w-3.5" /> Liberar
                   </button>
                 </div>
@@ -344,12 +446,13 @@ export function Panel() {
           </div>
         </div>
       )}
+      {aviso}
     </main>
   )
 }
 
 /** Carga de presentes por la cátedra: alumnos sin celular, problemas técnicos, ausencias justificadas… */
-function CargaManual({ sesionId, onSesion, alumnos, registros, recargar }: { sesionId: string; onSesion: (id: string) => void; alumnos: Alumno[]; registros: Registro[]; recargar: () => void }) {
+function CargaManual({ sesionId, onSesion, alumnos, registros, recargar, avisar }: { sesionId: string; onSesion: (id: string) => void; alumnos: Alumno[]; registros: Registro[]; recargar: () => void; avisar: Avisar }) {
   const api = useAdmin()
   const [busqueda, setBusqueda] = useState('')
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set())
@@ -395,11 +498,13 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar }: { ses
 
   const confirmar = async () => {
     setEnviando(true)
+    setAviso('')
     try {
-      const n = await api.marcarManual(sesionId, [...seleccion], motivo.trim() || 'Sin especificar')
-      setAviso(`${n} presente${n === 1 ? '' : 's'} cargado${n === 1 ? '' : 's'} en la clase del ${fechaCorta(sesionId)}.`)
+      const libretas = [...seleccion]
+      const n = await api.marcarManual(sesionId, libretas, motivo.trim() || 'Sin especificar')
       setSeleccion(new Set())
       recargar()
+      avisar(`${n} presente${n === 1 ? '' : 's'} cargado${n === 1 ? '' : 's'} en la clase del ${fechaCorta(sesionId)}`, () => api.quitarPresente(sesionId, libretas).then(recargar))
     } catch (e) {
       setAviso(`No se pudo guardar: ${String((e as Error).message ?? e)}`)
     } finally {
@@ -486,7 +591,7 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar }: { ses
           <button className="btn btn-primario mt-5 w-full !py-3" disabled={!seleccion.size || enviando} onClick={confirmar}>
             <CircleCheck className="h-4 w-4" /> Dar presente a {seleccion.size || ''} {seleccion.size === 1 ? 'alumno' : 'alumnos'}
           </button>
-          {aviso && <p className="entrada mt-3 rounded-xl bg-vital-suave px-3 py-2 text-sm text-vital">{aviso}</p>}
+          {aviso && <p className="entrada mt-3 rounded-xl bg-rosa-suave px-3 py-2 text-sm text-rosa-oscuro">{aviso}</p>}
         </div>
 
         <div className="tarjeta p-5">
@@ -502,7 +607,15 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar }: { ses
                     {r.cargadoPor ? ` · ${r.cargadoPor}` : ''}
                   </div>
                 </div>
-                <button className="shrink-0 text-xs text-slate-400 hover:text-rosa" onClick={() => api.quitarPresente(sesionId, [r.libreta]).then(recargar)}>
+                <button
+                  className="shrink-0 text-xs text-slate-400 hover:text-rosa"
+                  onClick={() =>
+                    api.quitarPresente(sesionId, [r.libreta]).then(() => {
+                      recargar()
+                      avisar(`Presente quitado: ${(porLibreta.get(r.libreta)?.nombre ?? r.nombre).split(',')[0]}`, () => api.marcarManual(sesionId, [r.libreta], r.motivo ?? 'Sin especificar').then(recargar))
+                    })
+                  }
+                >
                   Quitar
                 </button>
               </li>
@@ -514,7 +627,7 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar }: { ses
   )
 }
 
-function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar }: { sesion: Sesion; alumnos: Alumno[]; registros: Registro[]; onCambiar: (id: string) => void; recargar: () => void }) {
+function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar, avisar }: { sesion: Sesion; alumnos: Alumno[]; registros: Registro[]; onCambiar: (id: string) => void; recargar: () => void; avisar: Avisar }) {
   const api = useAdmin()
   const [verAusentes, setVerAusentes] = useState(false)
   const regs = registros.filter((r) => r.sesionId === sesion.id).sort((a, b) => a.marcadoEn - b.marcadoEn)
@@ -574,7 +687,16 @@ function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar }: { ses
                   </td>
                   <td className="px-4 py-2 text-xs text-slate-500">{r.metodo === 'manual' ? `${r.motivo ?? ''}${r.cargadoPor ? ` · ${r.cargadoPor}` : ''}` : r.distanciaM != null ? `${r.distanciaM} m de la sede` : ''}</td>
                   <td className="px-4 py-2 text-right">
-                    <button className="text-xs text-slate-400 hover:text-rosa" onClick={() => api.quitarPresente(sesion.id, [r.libreta]).then(recargar)}>
+                    <button
+                      className="text-xs text-slate-400 hover:text-rosa"
+                      onClick={async () => {
+                        const nombre = porAlumno.get(r.libreta)?.nombre ?? r.nombre
+                        if (r.metodo !== 'manual' && !confirm(`¿Quitar el presente que ${nombre} dio con el ${r.metodo === 'poster' ? 'póster' : 'QR'}?`)) return
+                        await api.quitarPresente(sesion.id, [r.libreta])
+                        recargar()
+                        avisar(`Presente quitado: ${nombre.split(',')[0]}`, r.metodo === 'manual' ? () => api.marcarManual(sesion.id, [r.libreta], r.motivo ?? 'Sin especificar').then(recargar) : undefined)
+                      }}
+                    >
                       Quitar
                     </button>
                   </td>
@@ -599,7 +721,15 @@ function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar }: { ses
                     {a.libreta} · DNI {a.dni}
                   </div>
                 </div>
-                <button className="btn btn-secundario !py-1.5 !text-xs" onClick={() => api.marcarManual(sesion.id, [a.libreta], 'Cargado desde «Por clase»').then(recargar)}>
+                <button
+                  className="btn btn-secundario !py-1.5 !text-xs"
+                  onClick={() =>
+                    api.marcarManual(sesion.id, [a.libreta], 'Cargado desde «Por clase»').then(() => {
+                      recargar()
+                      avisar(`Presente manual cargado: ${a.nombre.split(',')[0]}`, () => api.quitarPresente(sesion.id, [a.libreta]).then(recargar))
+                    })
+                  }
+                >
                   Marcar presente
                 </button>
               </div>
