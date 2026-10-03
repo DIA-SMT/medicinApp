@@ -1,8 +1,9 @@
 import { Check, Printer, Projector, Stethoscope } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { AREAS, type Sesion } from '../lib/cronograma'
-import { useNow } from '../lib/hooks'
+import { esCatedra, useNow } from '../lib/hooks'
 import { diaSemana, estadoClase, fechaCorta } from '../lib/time'
+import { Agendar } from './Agendar'
 import { ChipArea, ChipParcial, IconoArea } from './ui'
 
 const ETIQUETA = { dictada: 'Dictada', hoy: 'Hoy', proxima: 'Próxima', futura: '' } as const
@@ -15,10 +16,10 @@ export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?:
 
   return (
     <article
-      className={`tarjeta group relative h-full overflow-hidden p-5 transition duration-300 hover:-translate-y-0.5 ${e === 'dictada' ? 'opacity-70 hover:opacity-100' : ''} ${destacada ? 'hud' : ''}`}
+      className={`tarjeta group relative h-full p-5 transition duration-300 hover:-translate-y-0.5 ${e === 'dictada' ? 'opacity-70 hover:opacity-100' : ''} ${destacada ? 'hud' : ''}`}
       style={destacada ? { boxShadow: `0 0 0 1px ${color}55, 0 18px 40px -24px ${color}` } : undefined}
     >
-      <div className="absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
+      <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[1.25rem]" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[0.65rem] tracking-[0.2em] text-slate-400 uppercase">
@@ -63,13 +64,18 @@ export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?:
             {sesion.parcial && <ChipParcial texto={sesion.parcial} />}
           </div>
           {e !== 'dictada' && (
-            <div className="flex gap-1.5 opacity-80 transition group-hover:opacity-100">
-              <Link to={`/aula/${sesion.id}`} className="btn btn-secundario !px-2.5 !py-1.5 !text-xs" title="Proyectar QR dinámico">
-                <Projector className="h-3.5 w-3.5" /> Proyectar
-              </Link>
-              <Link to={`/poster/${sesion.id}`} className="btn btn-secundario !px-2.5 !py-1.5 !text-xs" title="Póster imprimible">
-                <Printer className="h-3.5 w-3.5" />
-              </Link>
+            <div className="flex gap-1.5">
+              <Agendar sesion={sesion} compacto />
+              {esCatedra() && (
+                <>
+                  <Link to={`/aula/${sesion.id}`} className="btn btn-secundario !px-2.5 !py-1.5 !text-xs" title="Proyectar QR dinámico (cátedra)">
+                    <Projector className="h-3.5 w-3.5" /> Proyectar
+                  </Link>
+                  <Link to={`/poster/${sesion.id}`} className="btn btn-secundario !px-2.5 !py-1.5 !text-xs" title="Póster imprimible (cátedra)">
+                    <Printer className="h-3.5 w-3.5" />
+                  </Link>
+                </>
+              )}
             </div>
           )}
         </div>

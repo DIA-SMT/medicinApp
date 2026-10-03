@@ -13,9 +13,9 @@ const ICONOS: Record<Area, LucideIcon> = {
   mastologia: Ribbon,
 }
 
-export function IconoArea({ area, className = 'h-4 w-4' }: { area: Area; className?: string }) {
+export function IconoArea({ area, className = 'h-4 w-4', color }: { area: Area; className?: string; color?: string }) {
   const I = ICONOS[area] ?? ScanLine
-  return <I className={className} style={{ color: AREAS[area].color }} strokeWidth={1.9} />
+  return <I className={className} style={{ color: color ?? AREAS[area].color }} strokeWidth={1.9} />
 }
 
 export function ChipArea({ area }: { area: Area }) {

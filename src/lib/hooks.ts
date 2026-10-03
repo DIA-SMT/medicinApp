@@ -2,6 +2,20 @@ import { useCallback, useEffect, useState } from 'react'
 import { publico } from '../data/publico'
 import type { Ventana } from './time'
 
+/**
+ * ¿Alguien de la cátedra inició sesión en este navegador? Sólo para decidir si mostrar accesos como
+ * «Proyectar» o «Póster» en las páginas públicas: no da permisos (eso lo controla la base).
+ * Mira la sesión que guarda supabase-js (sb-<proyecto>-auth-token) sin descargar el cliente.
+ */
+export function esCatedra() {
+  if (__DEMO__) return true
+  try {
+    return Object.keys(localStorage).some((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+  } catch {
+    return false
+  }
+}
+
 /** Reloj que re-renderiza cada `ms`. */
 export function useNow(ms = 1000) {
   const [now, setNow] = useState(() => Date.now())

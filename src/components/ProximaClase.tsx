@@ -1,8 +1,9 @@
-import { Printer, Projector, Stethoscope } from 'lucide-react'
+import { Printer, Projector, ScanLine, Stethoscope } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { docentesSesion, type Sesion } from '../lib/cronograma'
-import { useNow, useVentanas } from '../lib/hooks'
+import { esCatedra, useNow, useVentanas } from '../lib/hooks'
 import { diaSemana, estadoClase, fechaLarga, hmArt, infoVentana, partesCuenta, ventanaDefault } from '../lib/time'
+import { Agendar } from './Agendar'
 import { ChipArea, ChipParcial, PildoraEstado } from './ui'
 
 function Digito({ v, l }: { v: number; l: string }) {
@@ -25,8 +26,10 @@ export function ProximaClase({ sesion }: { sesion: Sesion }) {
   const p = partesCuenta((info.estado === 'programada' ? info.abre : info.cierra) - now)
 
   return (
-    <div className="tarjeta hud relative overflow-hidden p-6 sm:p-7">
-      <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-rosa/10 blur-3xl" />
+    <div className="tarjeta hud relative p-6 sm:p-7">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+        <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-rosa/10 blur-3xl" />
+      </div>
       <div className="relative flex flex-wrap items-center justify-between gap-3">
         <span className="etiqueta">
           {ec === 'hoy' ? 'Hoy' : 'Próxima clase'} · Nº {String(sesion.n).padStart(2, '0')}
@@ -70,12 +73,22 @@ export function ProximaClase({ sesion }: { sesion: Sesion }) {
       </div>
 
       <div className="relative mt-6 flex flex-wrap gap-2">
-        <Link to={`/aula/${sesion.id}`} className="btn btn-secundario">
-          <Projector className="h-4 w-4" /> Proyectar QR
-        </Link>
-        <Link to={`/poster/${sesion.id}`} className="btn btn-secundario">
-          <Printer className="h-4 w-4" /> Póster imprimible
-        </Link>
+        {info.estado === 'abierta' && (
+          <a href="/p/" className="btn btn-primario">
+            <ScanLine className="h-4 w-4" /> Dar presente
+          </a>
+        )}
+        <Agendar sesion={sesion} />
+        {esCatedra() && (
+          <>
+            <Link to={`/aula/${sesion.id}`} className="btn btn-secundario" title="Sólo para la cátedra">
+              <Projector className="h-4 w-4" /> Proyectar QR
+            </Link>
+            <Link to={`/poster/${sesion.id}`} className="btn btn-secundario" title="Sólo para la cátedra">
+              <Printer className="h-4 w-4" /> Póster
+            </Link>
+          </>
+        )}
       </div>
     </div>
   )
