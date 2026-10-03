@@ -62,10 +62,10 @@ export function QrCode({ value, className = '', tinta = '#0a0f1f', acento = '#b0
 }
 
 /** Borde de progreso que se consume alrededor de una tarjeta cuadrada. */
-export function MarcoProgreso({ progreso, color = '#22e1ff' }: { progreso: number; color?: string }) {
+export function MarcoProgreso({ progreso, color = '#f06ba3' }: { progreso: number; color?: string }) {
   return (
     <svg className="pointer-events-none absolute -inset-[7px] h-[calc(100%+14px)] w-[calc(100%+14px)]" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-      <rect x="0.6" y="0.6" width="98.8" height="98.8" rx="7" fill="none" stroke="#e7eaf1" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      <rect x="0.6" y="0.6" width="98.8" height="98.8" rx="7" fill="none" stroke="#fbd6e6" strokeWidth="2" vectorEffect="non-scaling-stroke" />
       <rect
         x="0.6" y="0.6" width="98.8" height="98.8" rx="7" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round"
         vectorEffect="non-scaling-stroke" pathLength={100} strokeDasharray={`${Math.max(0, Math.min(100, progreso * 100))} 100`}

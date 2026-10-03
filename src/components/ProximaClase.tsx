@@ -9,7 +9,7 @@ import { ChipArea, ChipParcial, PildoraEstado } from './ui'
 function Digito({ v, l }: { v: number; l: string }) {
   return (
     <div className="flex flex-col items-center">
-      <div className="min-w-[3.6rem] rounded-xl border border-linea bg-slate-50 px-2 py-2 text-center font-mono text-3xl font-semibold text-tinta tabular-nums shadow-[inset_0_-10px_20px_-16px_rgb(10_162_192/0.5)] sm:text-4xl">
+      <div className="min-w-[3.6rem] rounded-xl border border-linea bg-slate-50 px-2 py-2 text-center font-mono text-3xl font-semibold text-tinta tabular-nums shadow-[inset_0_-10px_20px_-16px_rgb(224_36_111/0.35)] sm:text-4xl">
         {String(v).padStart(2, '0')}
       </div>
       <span className="mt-1.5 font-mono text-[0.6rem] tracking-[0.2em] text-slate-400 uppercase">{l}</span>

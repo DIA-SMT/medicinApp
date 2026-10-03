@@ -241,7 +241,20 @@ export function Panel() {
   }, [filas, busqueda, filtro])
 
   if (error) return <p className="mx-auto max-w-3xl p-10 text-rosa-oscuro">No se pudieron cargar los datos: {error}</p>
-  if (!alumnos) return <p className="mx-auto max-w-3xl p-10 font-mono text-slate-400">Cargando padrón…</p>
+  if (!alumnos)
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6" aria-busy="true">
+        <div className="h-3 w-56 animate-pulse rounded bg-rosa-suave" />
+        <div className="mt-3 h-9 w-72 max-w-full animate-pulse rounded-lg bg-rosa-suave" />
+        <div className="tarjeta mt-8 h-44 animate-pulse" />
+        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div key={i} className="tarjeta h-24 animate-pulse" />
+          ))}
+        </div>
+        <p className="mt-6 text-center text-sm text-slate-500">Cargando el padrón y la asistencia…</p>
+      </main>
+    )
 
   /** Clic en un casillero de la grilla: se corrige al instante y el aviso permite deshacerlo. */
   const alternarPresente = async (s: Sesion, a: Alumno, r: Registro | undefined) => {
@@ -313,7 +326,7 @@ export function Panel() {
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi etiqueta="Alumnos" valor={alumnos.length} icono={Users} nota="Planilla de regularidades" />
         <Kpi etiqueta="Clases con registro" valor={computables.length} sufijo={`/ ${CRONOGRAMA.length}`} icono={CalendarCheck} nota={`${restantes} por dictar`} />
-        <Kpi etiqueta="Asistencia media" valor={promedio} sufijo="%" color="#08798f" icono={Activity} />
+        <Kpi etiqueta="Asistencia media" valor={promedio} sufijo="%" color="#b3175a" icono={Activity} />
         <Kpi etiqueta="Regulares" valor={cuenta('Regular')} color="#0e9f68" nota={`${cuenta('En riesgo')} en riesgo · ${cuenta('Libre')} libres`} />
         <Kpi etiqueta="Presentes manuales" valor={manuales} color={manuales ? '#6b5cf6' : '#0b1220'} icono={ClipboardList} nota="Cargados por la cátedra" />
       </div>
@@ -516,7 +529,7 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   presente_manual: { texto: 'Presente manual', color: '#6b5cf6' },
   presente_quitado: { texto: 'Presente quitado', color: '#e0246f' },
   presente_cambiado: { texto: 'Presente modificado', color: '#c27c03' },
-  celular_liberado: { texto: 'Celular liberado', color: '#0aa2c0' },
+  celular_liberado: { texto: 'Celular liberado', color: '#b04aa6' },
 }
 
 /** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */

@@ -47,7 +47,7 @@ function Medidor({ valor, total }: { valor: number; total: number }) {
       <defs>
         <linearGradient id="medidor" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#0e9f68" />
-          <stop offset="1" stopColor="#0aa2c0" />
+          <stop offset="1" stopColor="#3fc49a" />
         </linearGradient>
       </defs>
       <circle cx="60" cy="60" r={r} fill="none" stroke="#eef1f6" strokeWidth="9" />
@@ -198,9 +198,9 @@ export function Aula() {
         {/* ── QR ── */}
         <section className="flex flex-col items-center justify-center">
           <div className="relative w-[min(84vw,60vh)] lg:w-[min(66vh,44vw,640px)]">
-            {abierta && <MarcoProgreso progreso={restante / TOTP_PASO_S} color={restante < 5 ? '#e0246f' : '#0aa2c0'} />}
+            {abierta && <MarcoProgreso progreso={restante / TOTP_PASO_S} color={restante < 5 ? '#b3175a' : '#f06ba3'} />}
             <div
-              className={`relative aspect-square overflow-hidden rounded-[1.75rem] border border-linea bg-white ${abierta && token ? 'p-[5%] shadow-[0_30px_80px_-30px_rgb(10_162_192/0.55)]' : ''}`}
+              className={`relative aspect-square overflow-hidden rounded-[1.75rem] border border-linea bg-white ${abierta && token ? 'p-[5%] shadow-[0_30px_80px_-30px_rgb(224_36_111/0.45)]' : ''}`}
             >
               {abierta && token ? (
                 // Animación CSS (no JS): si el navegador deja de pintar, el QR igual queda nítido.

@@ -93,12 +93,13 @@ export function Elena() {
     return (
       <button
         onClick={() => setAbierto(true)}
-        className="no-print fixed right-4 bottom-4 z-50 flex items-center gap-2 rounded-full border border-rosa/25 bg-white py-1.5 pr-4 pl-1.5 shadow-[0_14px_36px_-16px_rgb(224_36_111/0.55)] transition hover:border-rosa/60"
+        className="no-print fixed right-3 bottom-3 z-50 flex items-center gap-2 rounded-full border border-rosa/25 bg-white p-1.5 shadow-[0_14px_36px_-16px_rgb(224_36_111/0.55)] transition hover:border-rosa/60 sm:right-4 sm:bottom-4 sm:pr-4"
+        aria-label="Abrir el chat con Elena"
         title="Preguntale a Elena cómo dar el presente o cuánta asistencia necesitás"
       >
         <img src="/elena.webp" alt="" width={36} height={36} className="h-9 w-9 rounded-full bg-rosa-suave object-cover" />
-        <span className="text-sm font-semibold text-tinta">¿Dudas? Elena</span>
-        <span className="h-2 w-2 animate-pulse rounded-full bg-vital" />
+        <span className="hidden text-sm font-semibold text-tinta sm:inline">¿Dudas? Elena</span>
+        <span className="absolute top-1 right-1 h-2.5 w-2.5 animate-pulse rounded-full border-2 border-white bg-vital sm:static sm:h-2 sm:w-2 sm:border-0" />
       </button>
     )
   }

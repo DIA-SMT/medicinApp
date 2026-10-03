@@ -10,8 +10,8 @@ export function UteroMark({ className = 'h-9 w-9', mono }: { className?: string;
       <defs>
         <linearGradient id={`u${id}`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#e0246f" />
-          <stop offset="0.55" stopColor="#a42fc4" />
-          <stop offset="1" stopColor="#0aa2c0" />
+          <stop offset="0.55" stopColor="#d1358f" />
+          <stop offset="1" stopColor="#f472a8" />
         </linearGradient>
       </defs>
       <g fill="none" stroke={fill} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
@@ -33,7 +33,7 @@ export function Marca({ compacta }: { compacta?: boolean }) {
         <UteroMark className="h-8 w-8" />
       </div>
       {!compacta && (
-        <div className="leading-none">
+        <div className="leading-none max-[379px]:hidden">
           <div className="font-display text-[1.15rem] font-bold tracking-[0.22em] text-tinta">CICLO</div>
           <div className="mt-1 hidden font-mono text-[0.62rem] tracking-[0.2em] whitespace-nowrap text-slate-500 uppercase sm:block">Ginecología · FM-UNT</div>
         </div>

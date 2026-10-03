@@ -10,8 +10,8 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   background:
     radial-gradient(ellipse 80% 40% at 0% 0%, rgb(224 36 111 / 0.08), transparent),
-    radial-gradient(ellipse 70% 40% at 100% 0%, rgb(10 162 192 / 0.08), transparent),
-    #fff;
+    radial-gradient(ellipse 70% 40% at 100% 0%, rgb(176 74 166 / 0.07), transparent),
+    var(--color-fondo);
   background-attachment: fixed;
 }
 
@@ -28,7 +28,7 @@ body {
 }
 .chip-vital { color: var(--color-vital); background: var(--color-vital-suave); border-color: rgb(14 159 104 / 0.25); }
 .chip-ambar { color: var(--color-ambar); background: var(--color-ambar-suave); border-color: rgb(194 124 3 / 0.25); }
-.chip-gris { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; }
+.chip-gris { color: var(--color-slate-500); background: var(--color-slate-100); border-color: var(--color-slate-200); }
 .punto {
   width: 0.45rem;
   height: 0.45rem;
@@ -71,7 +71,7 @@ body {
   height: 1.4rem;
   flex-shrink: 0;
   border-radius: 999px;
-  border: 1.5px solid #d5dae5;
+  border: 1.5px solid var(--color-rosa-100);
   background: #fff;
   font-family: var(--font-mono);
   font-size: 0.68rem;
@@ -87,17 +87,17 @@ body {
   height: 0.4rem;
   overflow: hidden;
   border-radius: 999px;
-  background: #eef1f6;
+  background: var(--color-rosa-suave);
 }
 .barra > span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--color-cian), var(--color-vital));
+  background: linear-gradient(90deg, #f6a3c6, var(--color-rosa));
   transition: width 1s linear, background 0.4s;
 }
-.pase.apurado b { color: var(--color-rosa); }
-.pase.apurado .barra > span { background: linear-gradient(90deg, var(--color-rosa), #f0629b); }
+.pase.apurado .barra > span { background: linear-gradient(90deg, var(--color-ambar), #e05a3a); }
+.pase.apurado b { color: var(--color-ambar); }
 .crece { animation: crece 0.9s 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: left; }
 @keyframes crece {
   from { transform: scaleX(0); }

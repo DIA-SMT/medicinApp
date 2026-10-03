@@ -1,21 +1,26 @@
-/* Sistema visual "clínico": blanco, líneas finas, rosa ginecología + cian tecnológico.
-   Compartido por la app (index.css) y por la página liviana de registro (presente.css). */
+/* Sistema visual: rosa claro predominante (fondo, bordes, superficies), rosa intenso para las acciones
+   y lila como acento secundario. Verde, ámbar y violeta conservan su significado (presente, aviso, manual).
+   Compartido por la app (index.css) y por la página liviana de registro (presente.css).
+   Nota: los tokens «cian» se conservan de nombre por compatibilidad, pero ahora son lila. */
 
 @theme {
   --font-display: 'Space Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
 
-  --color-tinta: #0b1220;
-  --color-linea: #e7eaf1;
-  --color-fondo: #fafbfd;
+  --color-tinta: #1d0f17;
+  --color-linea: #f5dbe6;
+  --color-fondo: #fff6fa;
 
   --color-rosa: #e0246f;
-  --color-rosa-suave: #fdecf3;
+  --color-rosa-suave: #fde6f0;
   --color-rosa-oscuro: #b3175a;
-  --color-cian: #0aa2c0;
-  --color-cian-suave: #e7f8fb;
-  --color-cian-oscuro: #08798f;
+  --color-rosa-claro: #fff1f7;
+  --color-rosa-100: #fbd6e6;
+  --color-rosa-200: #f6b8d2;
+  --color-cian: #b04aa6;
+  --color-cian-suave: #f8eaf6;
+  --color-cian-oscuro: #8a2f82;
   --color-violeta: #6b5cf6;
   --color-violeta-suave: #f0eefe;
   --color-vital: #0e9f68;
@@ -23,6 +28,18 @@
   --color-ambar: #c27c03;
   --color-ambar-suave: #fff6e2;
   --color-unt: #1f4fb8;
+
+  /* Grises con un toque rosado: reemplazan la escala slate de Tailwind en toda la app con el mismo contraste. */
+  --color-slate-50: #fdf6f9;
+  --color-slate-100: #f8ebf1;
+  --color-slate-200: #f0dbe5;
+  --color-slate-300: #e3c5d3;
+  --color-slate-400: #b4919f;
+  --color-slate-500: #8a6878;
+  --color-slate-600: #6a4c5b;
+  --color-slate-700: #523946;
+  --color-slate-800: #392631;
+  --color-slate-900: #24161e;
 
   --animate-deriva: deriva 24s ease-in-out infinite alternate;
   --animate-latido: latido 1.6s ease-out infinite;
@@ -61,8 +78,8 @@ body {
     border: 1px solid var(--color-linea);
     border-radius: 1.25rem;
     box-shadow:
-      0 1px 2px rgb(15 23 42 / 0.04),
-      0 14px 36px -22px rgb(15 23 42 / 0.22);
+      0 1px 2px rgb(224 36 111 / 0.05),
+      0 14px 36px -22px rgb(179 23 90 / 0.28);
   }
 
   /* Esquinas de monitor médico */
@@ -76,7 +93,7 @@ body {
     width: 14px;
     height: 14px;
     pointer-events: none;
-    border: 0 solid var(--color-cian);
+    border: 0 solid var(--color-rosa-200);
   }
   .hud::before {
     top: -1px;
@@ -99,11 +116,11 @@ body {
     font-size: 0.68rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: #64748b;
+    color: var(--color-slate-500);
   }
 
   .texto-gradiente {
-    background: linear-gradient(100deg, var(--color-rosa) 0%, #9b3fd6 52%, var(--color-cian) 100%);
+    background: linear-gradient(100deg, var(--color-rosa) 0%, #d1358f 50%, var(--color-cian) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -125,7 +142,7 @@ body {
     transform: scale(0.97);
   }
   .btn:focus-visible {
-    outline: 2px solid var(--color-cian);
+    outline: 2px solid var(--color-rosa);
     outline-offset: 2px;
   }
   .btn:disabled {
@@ -134,39 +151,39 @@ body {
   }
   .btn-primario {
     color: #fff;
-    background: linear-gradient(135deg, var(--color-rosa), #a42fc4 60%, var(--color-violeta));
+    background: linear-gradient(135deg, #ef5b97, var(--color-rosa) 50%, #c22f86);
     box-shadow: 0 10px 24px -12px rgb(224 36 111 / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.25);
   }
   .btn-primario:hover {
     box-shadow: 0 14px 30px -12px rgb(224 36 111 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.3);
   }
   .btn-secundario {
-    color: #334155;
+    color: var(--color-slate-700);
     background: #fff;
-    border: 1px solid #dfe3ec;
+    border: 1px solid var(--color-rosa-100);
   }
   .btn-secundario:hover {
     color: var(--color-tinta);
-    border-color: var(--color-cian);
-    box-shadow: 0 0 0 3px var(--color-cian-suave);
+    border-color: var(--color-rosa-200);
+    box-shadow: 0 0 0 3px var(--color-rosa-suave);
   }
 
   .campo {
     width: 100%;
     border-radius: 0.9rem;
     background: #fff;
-    border: 1px solid #d5dae5;
+    border: 1px solid var(--color-rosa-100);
     padding: 0.85rem 1rem;
     color: var(--color-tinta);
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
   }
   .campo::placeholder {
-    color: #94a3b8;
+    color: var(--color-slate-400);
   }
   .campo:focus {
-    border-color: var(--color-cian);
-    box-shadow: 0 0 0 4px var(--color-cian-suave);
+    border-color: var(--color-rosa);
+    box-shadow: 0 0 0 4px var(--color-rosa-suave);
   }
 }
 
