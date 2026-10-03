@@ -281,7 +281,9 @@ async function registrar(sesion: Sesion, codigo: string) {
   // El pase sobrevive a una recarga accidental de la página durante 3 minutos. `vence` se mide con el
   // reloj del celular (desde que llegó el pase, con 10 s de margen) para no depender de que esté en hora.
   const clavePase = `ciclo:pase:${sesion.id}`
-  let pase: { pase: string; vence: number } | null = null
+  // `desfase`: servidor − celular. La firma lleva un timestamp que el servidor exige dentro de ±5 min:
+  // con la hora del servidor, un celular con la hora mal configurada igual puede dar presente.
+  let pase: { pase: string; vence: number; desfase?: number } | null = null
   try {
     const p = JSON.parse(sessionStorage.getItem(clavePase) ?? 'null')
     if (p && p.vence > Date.now()) pase = p
@@ -291,7 +293,7 @@ async function registrar(sesion: Sesion, codigo: string) {
   if (!pase) {
     const r = await api.abrirPase(sesion.id, codigo)
     if (!r.ok) return mostrarError(sesion, r.error, r.detalle, () => registrar(sesion, codigo))
-    pase = { pase: r.pase, vence: Date.now() + (PASE_TTL_S - 10) * 1000 }
+    pase = { pase: r.pase, vence: Date.now() + (PASE_TTL_S - 10) * 1000, desfase: r.ahora ? r.ahora - Date.now() : 0 }
     try {
       sessionStorage.setItem(clavePase, JSON.stringify(pase))
     } catch {
@@ -317,7 +319,7 @@ async function registrar(sesion: Sesion, codigo: string) {
 
   const marcar = async (dni: string) => {
     cargando(sesion, 'Registrando presente')
-    const ts = Date.now()
+    const ts = Date.now() + (pase!.desfase ?? 0)
     const firma = await firmar(dispositivo, `${sesion.id}|${pase!.pase}|${dni}|${ts}`)
     const ubicacion = GEO_MODO === 'off' ? null : await obtenerUbicacion(6000)
     const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })

@@ -7,7 +7,7 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, DispositivoVinculado, Fallo, Metodo, Progreso, PublicoApi, Registro } from './types'
+import type { AdminApi, Alumno, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, Progreso, PublicoApi, Registro } from './types'
 
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
@@ -20,7 +20,15 @@ function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progre
   }
 }
 
+/** Igual que el trigger public._auditar en SQL. */
+function auditar(e: Omit<EventoAuditoria, 'en' | 'por'>) {
+  const log = leer<EventoAuditoria[]>(K.auditoria, [])
+  log.unshift({ ...e, en: Date.now(), por: 'demo@catedra' })
+  escribir(K.auditoria, log.slice(0, 300))
+}
+
 const K = {
+  auditoria: 'ciclo:v1:auditoria',
   secretos: 'ciclo:v1:secretos',
   ventanas: 'ciclo:v1:ventanas',
   registros: 'ciclo:v1:registros',
@@ -99,6 +107,10 @@ const limpiarDni = (d: string) => d.replace(/\D/g, '')
 export function crearLocal(): PublicoApi & AdminApi {
   return {
     modo: 'demo',
+
+    async desfase() {
+      return 0
+    },
 
     async ventanas() {
       const guardadas = leer<Record<string, Ventana>>(K.ventanas, {})
@@ -222,6 +234,7 @@ export function crearLocal(): PublicoApi & AdminApi {
         const a = padronPorLibreta.get(libreta)
         if (!a || regs.some((r) => r.sesionId === sesionId && r.libreta === libreta)) continue
         regs.push({ sesionId, libreta, nombre: a.nombre, marcadoEn: Date.now(), metodo: 'manual', motivo, cargadoPor: 'demo@catedra' })
+        auditar({ accion: 'presente_manual', sesionId, libreta, detalle: motivo })
         nuevos++
       }
       escribir(K.registros, regs)
@@ -230,6 +243,7 @@ export function crearLocal(): PublicoApi & AdminApi {
 
     async quitarPresente(sesionId, libretas) {
       const quitar = new Set(libretas)
+      for (const r of leer<Registro[]>(K.registros, [])) if (r.sesionId === sesionId && quitar.has(r.libreta)) auditar({ accion: 'presente_quitado', sesionId, libreta: r.libreta, detalle: r.motivo ?? null })
       escribir(K.registros, leer<Registro[]>(K.registros, []).filter((r) => !(r.sesionId === sesionId && quitar.has(r.libreta))))
     },
 
@@ -241,6 +255,11 @@ export function crearLocal(): PublicoApi & AdminApi {
       const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
       for (const [h, d] of Object.entries(disp)) if (d.libreta === libreta) delete disp[h]
       escribir(K.dispositivos, disp)
+      auditar({ accion: 'celular_liberado', sesionId: null, libreta, detalle: null })
+    },
+
+    async auditoria() {
+      return leer<EventoAuditoria[]>(K.auditoria, [])
     },
 
     demo: {

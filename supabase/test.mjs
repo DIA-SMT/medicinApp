@@ -22,6 +22,8 @@ await db.exec(`
   do $$ begin create role authenticated; exception when others then null; end $$;
   create or replace function auth.jwt() returns jsonb language sql stable as
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
+  create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
+  create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz);
 `)
 await db.exec(fs.readFileSync(`${ROOT}/supabase/schema.sql`, 'utf8'))
 await db.exec(fs.readFileSync(`${ROOT}/supabase/seed.sql`, 'utf8'))
@@ -65,6 +67,8 @@ ok(r.ok === false && r.error === 'PROGRAMADA', 'sesión futura → PROGRAMADA', 
 await db.exec(`update sesiones set manual_desde = now(), manual_hasta = now() + interval '10 minutes', cerrada_en = null where id = '${SID}'`)
 r = (await one('select abrir_pase($1,$2) r', [SID, codigo])).r
 ok(r.ok === true && r.metodo === 'qr', 'apertura manual + TOTP vigente → pase', r.pase)
+ok(Math.abs(r.ahora - Date.now()) < 5000, 'abrir_pase informa la hora del servidor para corregir el reloj del celular')
+ok(Math.abs(Number((await one('select hora_servidor()::text h')).h) - Date.now()) < 5000, 'hora_servidor() para sincronizar el proyector')
 const pase = r.pase
 r = (await one('select abrir_pase($1,$2) r', [SID, await totpJs(sec, C - 1)])).r
 ok(r.ok === true, 'tolerancia: paso anterior aceptado')
@@ -131,7 +135,15 @@ try {
 }
 ok(err && err.includes('NO_AUTORIZADO'), 'docente_resumen sin sesión → NO_AUTORIZADO', err)
 await db.exec(`insert into docentes values ('catedra@ejemplo.edu.ar')`)
-await db.exec(`select set_config('request.jwt.claims', '{"email":"Catedra@Ejemplo.edu.ar"}', false)`)
+// Cuenta con el email del docente pero sin confirmar: no entra.
+await db.exec(`insert into auth.users values ('00000000-0000-0000-0000-00000000000a', 'catedra@ejemplo.edu.ar', null)`)
+await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
+ok((await one('select es_docente() d')).d === false, 'email del docente sin confirmar → no es docente')
+// Token con el email del docente pero de otro usuario: tampoco.
+await db.exec(`update auth.users set email_confirmed_at = now()`)
+await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000b","email":"Catedra@Ejemplo.edu.ar"}', false)`)
+ok((await one('select es_docente() d')).d === false, 'el email del token no alcanza: se valida el usuario')
+await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
 r = (await one(`select docente_resumen('${SID}') r`)).r
 ok(r.presentes === 1 && r.total === 197 && r.ultimos[0].nombre === 'Demo, A.', 'docente_resumen con email habilitado', r)
 ok((await one(`select docente_secreto('${SID}') s`)).s === sec, 'docente_secreto devuelve la semilla')
@@ -145,13 +157,25 @@ const manual = await q(`select libreta, motivo, cargado_por, huella from asisten
 ok(manual.length === 2 && manual.every((m) => m.cargado_por === 'Catedra@Ejemplo.edu.ar' && m.motivo && !m.huella), 'carga manual masiva registra motivo y autor', manual)
 await db.exec(`insert into asistencias (sesion_id, libreta, metodo, motivo) values ('2026-10-09', 'MD0000001', 'manual', 'duplicado') on conflict (sesion_id, libreta) do nothing`)
 ok((await one(`select count(*)::int n from asistencias where sesion_id = '2026-10-09'`)).n === 2, 'carga manual repetida no duplica')
+
+// ── Auditoría ──
+await db.exec(`delete from asistencias where sesion_id = '2026-10-09' and libreta = 'MD0000002'`)
+await db.exec(`delete from dispositivos where libreta = 'MD0000001'`)
+const aud = await q(`select accion, libreta, por, detalle from auditoria order by id`)
+ok(aud.filter((a) => a.accion === 'presente_manual').length === 2 && aud.filter((a) => a.accion === 'presente_manual').every((a) => a.por === 'Catedra@Ejemplo.edu.ar'), 'auditoría: cargas manuales con autor', aud.length)
+ok(aud.some((a) => a.accion === 'presente_quitado' && a.libreta === 'MD0000002'), 'auditoría: presente quitado')
+ok(aud.some((a) => a.accion === 'celular_liberado' && a.libreta === 'MD0000001'), 'auditoría: celular liberado')
+ok(!aud.some((a) => a.libreta === 'MD0000001' && a.accion === 'presente_manual' && a.detalle === 'duplicado'), 'auditoría: la carga repetida no deja rastro falso')
 await db.exec(`select set_config('request.jwt.claims', '', false)`)
 
 // ── Límite de intentos ──
 await db.exec(`update sesiones set cerrada_en = null, manual_hasta = now() + interval '5 minutes' where id = '${SID}'`)
-for (let i = 0; i < 120; i++) await one('select abrir_pase($1,$2) r', [SID, '000000'])
+await db.exec('delete from intentos_fallidos')
+for (let i = 0; i < 299; i++) await one('select abrir_pase($1,$2) r', [SID, '000000'])
 r = (await one('select abrir_pase($1,$2) r', [SID, '000000'])).r
-ok(!r.ok && r.error === 'RED' && /intentos/.test(r.detalle), '120 fallos en 1 min → bloqueo temporal', r.detalle)
+ok(!r.ok && r.error === 'CODIGO_INVALIDO', '299 fallos en 1 min (un aula detrás del mismo Wi-Fi) → todavía se atiende', r.error)
+r = (await one('select abrir_pase($1,$2) r', [SID, '000000'])).r
+ok(!r.ok && r.error === 'RED' && /intentos/.test(r.detalle), '300 fallos en 1 min → bloqueo temporal', r.detalle)
 
 // ── Horario real: 09/10 08:05 ART dentro de la ventana, 08:11 fuera ──
 const v = await one(`select

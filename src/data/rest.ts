@@ -20,20 +20,48 @@ async function pedir(ruta: string, init?: RequestInit) {
   }
 }
 
+const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Todas las funciones del alumno son idempotentes (reintentar nunca duplica un presente), así que ante un
+ * corte de red o un servidor saturado (5xx, 429) se reintenta sola dos veces, con espera creciente y al azar
+ * para que 195 celulares no reintenten todos en el mismo instante.
+ */
 async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T | Fallo> {
-  try {
-    const r = await pedir(`/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) })
-    if (!r.ok) return red(`El servidor respondió ${r.status}. Intentá de nuevo.`)
-    return (await r.json()) as T
-  } catch {
-    return red('Sin conexión. Revisá los datos móviles o el Wi-Fi y volvé a intentar.')
+  let ultimo: Fallo = red('Sin conexión. Revisá los datos móviles o el Wi-Fi y volvé a intentar.')
+  for (let intento = 0; intento < 3; intento++) {
+    if (intento) await esperar(intento * 700 + Math.random() * 600)
+    try {
+      const r = await pedir(`/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) })
+      if (r.ok) return (await r.json()) as T
+      ultimo = red(`El servidor respondió ${r.status}. Intentá de nuevo.`)
+      if (r.status < 500 && r.status !== 429) return ultimo
+    } catch {
+      /* sin red o timeout: se reintenta */
+    }
   }
+  return ultimo
 }
 
 const hm = (t: string | null) => (t ? t.slice(0, 5) : null)
 const ms = (t: string | null) => (t ? Date.parse(t) : null)
 
 export const restPublico: PublicoApi = {
+  async desfase() {
+    // Se toma la mejor de tres mediciones (la de menor ida y vuelta) y se compensa la mitad del viaje.
+    let mejor: { rtt: number; d: number } | null = null
+    for (let i = 0; i < 3; i++) {
+      const t0 = Date.now()
+      const r = await pedir('/rpc/hora_servidor', { method: 'POST', body: '{}' })
+      const t1 = Date.now()
+      if (!r.ok) throw new Error(`hora_servidor ${r.status}`)
+      const servidor = Number(await r.json())
+      const m = { rtt: t1 - t0, d: servidor - (t0 + (t1 - t0) / 2) }
+      if (!mejor || m.rtt < mejor.rtt) mejor = m
+    }
+    return Math.round(mejor!.d)
+  },
+
   async ventanas() {
     type Fila = { id: string; apertura: string; cierre: string; manual_desde: string | null; manual_hasta: string | null; cerrada_en: string | null }
     let filas: Fila[] = []

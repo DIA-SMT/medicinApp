@@ -2,12 +2,36 @@
 // Las reglas de asistencia viven en las funciones SQL de supabase/schema.sql.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { restPublico } from './rest'
-import type { AdminApi, Alumno, Registro, ResumenSesion } from './types'
+import type { AdminApi, Alumno, EventoAuditoria, Registro, ResumenSesion } from './types'
 
 const iso = (n: number | null | undefined) => (n ? new Date(n).toISOString() : null)
 
+/**
+ * La sesión de la cátedra se guarda en sessionStorage (se borra al cerrar el navegador) salvo que se marque
+ * «Recordarme en esta computadora»: la PC del aula es compartida y el panel muestra los DNI del padrón.
+ */
+const CLAVE_RECORDAR = 'ciclo:recordar'
+const recordar = () => {
+  try {
+    return localStorage.getItem(CLAVE_RECORDAR) === '1'
+  } catch {
+    return false
+  }
+}
+const almacen = () => (recordar() ? localStorage : sessionStorage)
+const almacenamiento = {
+  getItem: (k: string) => almacen().getItem(k),
+  setItem: (k: string, v: string) => almacen().setItem(k, v),
+  removeItem: (k: string) => {
+    localStorage.removeItem(k)
+    sessionStorage.removeItem(k)
+  },
+}
+
 export function crearSupabaseAdmin(): AdminApi {
-  const sb: SupabaseClient = createClient(import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string)
+  const sb: SupabaseClient = createClient(import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string, {
+    auth: { storage: almacenamiento, persistSession: true },
+  })
 
   async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await sb.rpc(fn, args)
@@ -35,7 +59,12 @@ export function crearSupabaseAdmin(): AdminApi {
       return ok === true
     },
 
-    async ingresar(email, clave) {
+    async ingresar(email, clave, recordarme = false) {
+      try {
+        localStorage.setItem(CLAVE_RECORDAR, recordarme ? '1' : '0')
+      } catch {
+        /* sin almacenamiento: queda en sessionStorage */
+      }
       const { error } = await sb.auth.signInWithPassword({ email, password: clave })
       if (error) {
         if (/confirm/i.test(error.message)) return { ok: false, error: 'La cuenta todavía no está confirmada. Pedile al administrador que la confirme.' }
@@ -121,6 +150,12 @@ export function crearSupabaseAdmin(): AdminApi {
     async liberarDispositivo(libreta) {
       const { error } = await sb.from('dispositivos').delete().eq('libreta', libreta)
       if (error) throw new Error(error.message)
+    },
+
+    async auditoria() {
+      const { data, error } = await sb.from('auditoria').select('en, por, accion, sesion_id, libreta, detalle').order('en', { ascending: false }).limit(300)
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((f): EventoAuditoria => ({ en: Date.parse(f.en), por: f.por, accion: f.accion, sesionId: f.sesion_id, libreta: f.libreta, detalle: f.detalle }))
     },
   }
 }

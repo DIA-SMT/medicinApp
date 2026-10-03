@@ -16,6 +16,7 @@ export function Acceso({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [verClave, setVerClave] = useState(false)
+  const [recordar, setRecordar] = useState(false)
 
   useEffect(() => {
     cargarAdmin()
@@ -42,7 +43,7 @@ export function Acceso({ children }: { children: React.ReactNode }) {
           e.preventDefault()
           if (!api) return
           setEnviando(true)
-          const r = await api.ingresar(email, clave)
+          const r = await api.ingresar(email, clave, recordar)
           setEnviando(false)
           if (r.ok) setEstado('dentro')
           else setError(r.error ?? 'No se pudo ingresar.')
@@ -75,6 +76,13 @@ export function Acceso({ children }: { children: React.ReactNode }) {
             {verClave ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
+        <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm text-slate-600">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-rosa" checked={recordar} onChange={(e) => setRecordar(e.target.checked)} />
+          <span>
+            Recordarme en esta computadora
+            <span className="block text-xs text-slate-400">Dejalo sin marcar en la PC del aula: la sesión se cierra sola al cerrar el navegador.</span>
+          </span>
+        </label>
         {error && <p className="mt-3 text-sm text-rosa-oscuro">{error}</p>}
         <button className="btn btn-primario mt-6 w-full !py-3" disabled={enviando || !api}>
           {enviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />} Ingresar

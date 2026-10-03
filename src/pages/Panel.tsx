@@ -1,10 +1,10 @@
-import { Activity, CalendarCheck, CircleCheck, ClipboardList, Database, Download, FingerprintPattern, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, ClipboardList, Database, Download, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
-import type { Alumno, DispositivoVinculado, Registro } from '../data/types'
+import type { AccionAuditoria, Alumno, DispositivoVinculado, EventoAuditoria, Registro } from '../data/types'
 import { MOTIVOS_MANUALES, UMBRAL_REGULARIDAD } from '../lib/config'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
@@ -17,7 +17,7 @@ type Avisar = (texto: string, deshacer?: () => Promise<unknown> | void) => void
 
 type Condicion = 'Regular' | 'En riesgo' | 'Libre'
 const COLOR_COND: Record<Condicion, string> = { Regular: '#0e9f68', 'En riesgo': '#c27c03', Libre: '#e0246f' }
-type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos'
+type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos' | 'historial'
 
 interface Fila {
   a: Alumno
@@ -294,6 +294,7 @@ export function Panel() {
             ['manual', 'Presente manual', UserPlus],
             ['clase', 'Por clase', CalendarCheck],
             ['dispositivos', `Dispositivos (${dispositivos.length})`, Smartphone],
+            ['historial', 'Historial', History],
           ] as const
         ).map(([k, t, I]) => (
           <button key={k} onClick={() => ir({ tab: k })} className={`btn ${tab === k ? 'btn-primario' : 'btn-secundario'} !py-2`}>
@@ -446,8 +447,63 @@ export function Panel() {
           </div>
         </div>
       )}
+      {tab === 'historial' && <Historial alumnos={alumnos} cambios={registros.length + dispositivos.length} />}
       {aviso}
     </main>
+  )
+}
+
+const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
+  presente_manual: { texto: 'Presente manual', color: '#6b5cf6' },
+  presente_quitado: { texto: 'Presente quitado', color: '#e0246f' },
+  presente_cambiado: { texto: 'Presente modificado', color: '#c27c03' },
+  celular_liberado: { texto: 'Celular liberado', color: '#0aa2c0' },
+}
+
+/** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */
+function Historial({ alumnos, cambios }: { alumnos: Alumno[]; cambios: number }) {
+  const api = useAdmin()
+  const [eventos, setEventos] = useState<EventoAuditoria[] | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    api.auditoria().then(setEventos).catch((e) => setError(String(e.message ?? e)))
+  }, [api, cambios])
+  const nombre = useMemo(() => new Map(alumnos.map((a) => [a.libreta, a.nombre])), [alumnos])
+
+  return (
+    <div className="tarjeta hud mt-4 p-5">
+      <p className="flex items-start gap-2 text-sm text-slate-600">
+        <History className="mt-0.5 h-4 w-4 shrink-0 text-cian" />
+        Cada presente cargado o quitado a mano y cada celular liberado queda registrado con quién lo hizo y cuándo. Los presentes por QR no aparecen
+        acá: se ven en «Por clase».
+      </p>
+      {error && <p className="mt-4 text-sm text-rosa-oscuro">No se pudo cargar el historial: {error}</p>}
+      {!eventos && !error && <p className="mt-4 font-mono text-sm text-slate-400">Cargando…</p>}
+      {eventos && eventos.length === 0 && <p className="py-6 text-center text-sm text-slate-500">Todavía no hay cambios manuales.</p>}
+      {eventos && eventos.length > 0 && (
+        <ul className="mt-4 max-h-[60vh] divide-y divide-slate-100 overflow-auto">
+          {eventos.map((e, i) => {
+            const a = ACCIONES[e.accion]
+            return (
+              <li key={i} className="flex flex-wrap items-start gap-x-4 gap-y-1 py-2.5 text-sm">
+                <span className="w-28 shrink-0 font-mono text-xs text-slate-400 tabular-nums">
+                  {fechaCorta(hoyIso(e.en))} {horaArt(e.en).slice(0, 5)}
+                </span>
+                <span className="w-36 shrink-0 font-medium" style={{ color: a.color }}>
+                  {a.texto}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="text-tinta">{nombre.get(e.libreta) ?? e.libreta}</span>
+                  {e.sesionId && <span className="text-slate-500"> · clase del {fechaCorta(e.sesionId)}</span>}
+                  {e.detalle && <span className="block text-xs text-slate-400">{e.detalle}</span>}
+                </span>
+                <span className="text-xs text-slate-400">{e.por ?? 'sistema'}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 

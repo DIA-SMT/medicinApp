@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, Unlock, UserPlus, Users, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { EcgLine } from '../components/EcgLine'
@@ -11,7 +11,7 @@ import { TOTP_PASO_S } from '../lib/config'
 import { CRONOGRAMA, docentesSesion, sesionPorId } from '../lib/cronograma'
 import { enlaceRegistro } from '../lib/enlaces'
 import { nombreCorto, pct } from '../lib/format'
-import { useNow, useVentanas } from '../lib/hooks'
+import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
 import { cuenta, diaSemana, fechaCorta, hmArt, horaArt, infoVentana, sesionActual, ventanaDefault, type Ventana } from '../lib/time'
 import { contador, segundosRestantes, totp } from '../lib/totp'
 
@@ -66,7 +66,10 @@ export function Aula() {
   const api = useAdmin()
   const { id } = useParams()
   const navigate = useNavigate()
-  const now = useNow(250)
+  // Todo el proyector (QR, ventana, cuentas) corre con la hora del servidor, no con la de la PC del aula.
+  const { desfase, medido } = useDesfase()
+  const now = useNow(250) + desfase
+  const enLinea = useEnLinea()
   const sesion = (id && sesionPorId(id)) || sesionActual(now) || CRONOGRAMA[CRONOGRAMA.length - 1]
   const { ventanas, recargar } = useVentanas()
   const ventana = ventanas?.[sesion.id] ?? ventanaDefault()
@@ -126,9 +129,10 @@ export function Aula() {
     await api.guardarVentana(sesion.id, { ...ventana, ...cambio })
     recargar()
   }
-  const abrirAhora = (min: number) => guardar({ manualDesde: Date.now(), manualHasta: Date.now() + min * 60e3, cerradaEn: null })
-  const extender = (min: number) => guardar({ manualDesde: info.abre, manualHasta: Math.max(info.cierra, Date.now()) + min * 60e3, cerradaEn: null })
-  const cerrarAhora = () => confirm('¿Cerrar el registro ahora? Los alumnos ya no van a poder dar presente con el QR.') && guardar({ manualHasta: null, manualDesde: null, cerradaEn: Date.now() })
+  const ahora = () => Date.now() + desfase
+  const abrirAhora = (min: number) => guardar({ manualDesde: ahora(), manualHasta: ahora() + min * 60e3, cerradaEn: null })
+  const extender = (min: number) => guardar({ manualDesde: info.abre, manualHasta: Math.max(info.cierra, ahora()) + min * 60e3, cerradaEn: null })
+  const cerrarAhora = () => confirm('¿Cerrar el registro ahora? Los alumnos ya no van a poder dar presente con el QR.') && guardar({ manualHasta: null, manualDesde: null, cerradaEn: ahora() })
   const pantallaCompleta = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})
 
   // Atajos para no buscar botones con el mouse en el aula: F pantalla completa, + extiende 5 minutos.
@@ -175,6 +179,16 @@ export function Aula() {
           ))}
         </select>
         <div className="flex items-center gap-3">
+          {!enLinea && (
+            <span className="flex items-center gap-1.5 rounded-full border border-rosa/30 bg-rosa-suave px-2.5 py-1 text-xs font-medium text-rosa-oscuro" title="El QR sigue funcionando: los alumnos usan los datos de su celular. Los presentes en vivo se actualizan al volver la conexión.">
+              <WifiOff className="h-3.5 w-3.5" /> Sin internet
+            </span>
+          )}
+          {medido && Math.abs(desfase) > 15_000 && (
+            <span className="hidden rounded-full border border-ambar/30 bg-ambar-suave px-2.5 py-1 text-xs font-medium text-ambar sm:inline" title="El reloj de esta computadora está desfasado. CICLO usa la hora del servidor, así que el QR funciona igual.">
+              Reloj de la PC corregido ({desfase > 0 ? '+' : ''}{Math.round(desfase / 1000)} s)
+            </span>
+          )}
           <Clock className="h-5 w-5 text-cian" />
           <span className="font-mono text-2xl font-semibold text-tinta tabular-nums lg:text-3xl">{horaArt(now)}</span>
         </div>

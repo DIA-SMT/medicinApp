@@ -97,9 +97,14 @@ alter table public.docentes          enable row level security;
 alter table public.ajustes           enable row level security;
 alter table public.intentos_fallidos enable row level security;
 
+-- Docente = usuario autenticado (por su id, no por un claim del token) cuyo email está confirmado
+-- y figura en la tabla docentes. Una cuenta creada con el email de un docente pero sin confirmar no entra.
 create or replace function public.es_docente() returns boolean
-language sql stable security definer set search_path = public as $$
-  select exists (select 1 from docentes where lower(email) = lower(auth.jwt() ->> 'email'))
+language sql stable security definer set search_path = public, auth as $$
+  select exists (
+    select 1 from docentes d join auth.users u on lower(u.email) = lower(d.email)
+    where u.id = auth.uid() and u.email_confirmed_at is not null
+  )
 $$;
 
 drop policy if exists sesiones_lectura on public.sesiones;
@@ -187,8 +192,9 @@ $$;
 
 create or replace function public._bloqueado() returns boolean
 language sql security definer set search_path = public as $$
-  -- 120 fallos/min por IP: holgado para un aula detrás de un mismo NAT, inútil para fuerza bruta (10⁶ códigos)
-  select count(*) >= 120 from intentos_fallidos where ip = public._ip() and en > now() - interval '1 minute'
+  -- 300 fallos/min por IP: toda el aula sale por el mismo NAT del Wi-Fi de la facultad (195 alumnos, algunos con
+  -- códigos vencidos por demoras de red); para fuerza bruta sigue siendo inútil (3 códigos válidos en 10⁶ cada 20 s).
+  select count(*) >= 300 from intentos_fallidos where ip = public._ip() and en > now() - interval '1 minute'
 $$;
 
 create or replace function public._fallo(codigo text, detalle text default null) returns jsonb
@@ -218,6 +224,10 @@ end $$;
 
 -- ── API pública (alumno) ────────────────────────────────────────────────────
 
+/** Hora del servidor (epoch ms). El proyector la usa para generar el QR aunque el reloj de la PC del aula esté mal. */
+create or replace function public.hora_servidor() returns bigint
+language sql volatile set search_path = public as $$ select (extract(epoch from clock_timestamp()) * 1000)::bigint $$;
+
 create or replace function public.abrir_pase(p_sesion text, p_codigo text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare s sesiones; sec text; c bigint; m text;
@@ -241,7 +251,8 @@ begin
     'ok', true,
     'pase', c || '.' || m || '.' || public._firma_pase(sec, p_sesion, c, m),
     'metodo', case m when 'q' then 'qr' else 'poster' end,
-    'expiraEn', (c * 20 + 180) * 1000
+    'expiraEn', (c * 20 + 180) * 1000,
+    'ahora', public._ms(now())  -- el celular corrige su reloj con esto (la firma lleva un timestamp que se valida)
   );
 end $$;
 
@@ -386,10 +397,61 @@ from public, anon, authenticated;
 revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente()
 from public, anon;
 
-grant execute on function public.abrir_pase(text, text), public.identificar(text, text, text, text),
+grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text),
   public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
 to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente() to authenticated;
+
+-- ── Auditoría: quién cargó, quitó o cambió presentes y quién liberó celulares ──
+-- Los presentes por QR no se registran acá (ya tienen hora, método y huella en asistencias): sólo lo manual.
+
+create table if not exists public.auditoria (
+  id        bigint generated always as identity primary key,
+  en        timestamptz not null default now(),
+  por       text default (auth.jwt() ->> 'email'),
+  accion    text not null check (accion in ('presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado')),
+  sesion_id text,
+  libreta   text not null,
+  detalle   text,
+  previo    jsonb
+);
+create index if not exists idx_auditoria_en on public.auditoria (en desc);
+alter table public.auditoria enable row level security;
+revoke all on public.auditoria from anon, authenticated;
+grant select on public.auditoria to authenticated;
+drop policy if exists auditoria_docente on public.auditoria;
+create policy auditoria_docente on public.auditoria for select using (public.es_docente());
+
+create or replace function public._auditar() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_table_name = 'dispositivos' then
+    insert into auditoria (accion, libreta, previo) values ('celular_liberado', old.libreta, jsonb_build_object('desde', old.creado_en));
+    return old;
+  end if;
+  if tg_op = 'INSERT' then
+    if new.metodo = 'manual' then
+      insert into auditoria (accion, sesion_id, libreta, detalle) values ('presente_manual', new.sesion_id, new.libreta, new.motivo);
+    end if;
+    return new;
+  elsif tg_op = 'DELETE' then
+    insert into auditoria (accion, sesion_id, libreta, detalle, previo)
+    values ('presente_quitado', old.sesion_id, old.libreta, old.motivo, to_jsonb(old) - 'firma' - 'ip');
+    return old;
+  else
+    insert into auditoria (accion, sesion_id, libreta, detalle, previo)
+    values ('presente_cambiado', new.sesion_id, new.libreta, new.motivo, to_jsonb(old) - 'firma' - 'ip');
+    return new;
+  end if;
+end $$;
+
+drop trigger if exists trg_auditar_asistencias on public.asistencias;
+create trigger trg_auditar_asistencias after insert or update or delete on public.asistencias
+  for each row execute function public._auditar();
+drop trigger if exists trg_auditar_dispositivos on public.dispositivos;
+create trigger trg_auditar_dispositivos after delete on public.dispositivos
+  for each row execute function public._auditar();
+revoke execute on function public._auditar() from public, anon, authenticated;
 
 -- ── Elena (asistente de la app): cupo de uso para acotar el costo del modelo ──
 -- La función de Vercel /api/elena la consulta antes de cada respuesta. Se guarda la IP con hash, nunca en claro.

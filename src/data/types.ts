@@ -48,7 +48,8 @@ export type CodigoError =
 
 export type Fallo = { ok: false; error: CodigoError; detalle?: string }
 
-export type ResultadoPase = { ok: true; pase: string; metodo: Metodo; expiraEn: number } | Fallo
+/** `ahora`: hora del servidor (epoch ms), para que el celular corrija su reloj. */
+export type ResultadoPase = { ok: true; pase: string; metodo: Metodo; expiraEn: number; ahora?: number } | Fallo
 
 export type ResultadoIdentificacion =
   | { ok: true; nombre: string; libreta: string; vinculo: 'este' | 'libre' | 'otro' }
@@ -78,6 +79,18 @@ export interface PedidoMarca {
   ubicacion: { lat: number; lng: number; precision: number } | null
 }
 
+export type AccionAuditoria = 'presente_manual' | 'presente_quitado' | 'presente_cambiado' | 'celular_liberado'
+
+/** Un cambio hecho por la cátedra (lo registra la base con un trigger: no se puede omitir desde la app). */
+export interface EventoAuditoria {
+  en: number
+  por: string | null
+  accion: AccionAuditoria
+  sesionId: string | null
+  libreta: string
+  detalle: string | null
+}
+
 export interface DispositivoVinculado {
   libreta: string
   huella: string
@@ -87,6 +100,8 @@ export interface DispositivoVinculado {
 /** Lo que usa el celular del alumno y las páginas públicas: pocas llamadas, sin dependencias. */
 export interface PublicoApi {
   ventanas(): Promise<Record<string, Ventana>>
+  /** Diferencia entre el reloj del servidor y el de este equipo, en ms (servidor − local). */
+  desfase(): Promise<number>
   abrirPase(sesionId: string, codigo: string): Promise<ResultadoPase>
   identificar(sesionId: string, pase: string, dni: string, huella: string): Promise<ResultadoIdentificacion>
   marcar(p: PedidoMarca): Promise<ResultadoMarca>
@@ -96,7 +111,8 @@ export interface PublicoApi {
 export interface AdminApi {
   modo: 'demo' | 'supabase'
   autenticado(): Promise<boolean>
-  ingresar(email: string, clave: string): Promise<{ ok: boolean; error?: string }>
+  /** `recordar`: si es false la sesión dura lo que el navegador abierto (PC compartida del aula). */
+  ingresar(email: string, clave: string, recordar?: boolean): Promise<{ ok: boolean; error?: string }>
   salir(): Promise<void>
   ventanas(): Promise<Record<string, Ventana>>
   secreto(sesionId: string): Promise<string>
@@ -111,6 +127,8 @@ export interface AdminApi {
   quitarPresente(sesionId: string, libretas: string[]): Promise<void>
   dispositivos(): Promise<DispositivoVinculado[]>
   liberarDispositivo(libreta: string): Promise<void>
+  /** Últimos cambios manuales: presentes cargados o quitados y celulares liberados. */
+  auditoria(): Promise<EventoAuditoria[]>
 
   /** Herramientas sólo disponibles en modo demostración. */
   demo?: {
