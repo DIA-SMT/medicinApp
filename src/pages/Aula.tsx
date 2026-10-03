@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { EcgLine } from '../components/EcgLine'
@@ -231,6 +231,11 @@ export function Aula() {
                         <button className="btn btn-primario" onClick={() => abrirAhora(10)}>
                           <Unlock className="h-4 w-4" /> {info.estado === 'programada' ? 'Abrir ahora' : 'Reabrir'} · 10 min
                         </button>
+                        {info.estado === 'cerrada' && (
+                          <Link to="/panel" className="btn btn-secundario" title="Copia de seguridad de la asistencia">
+                            <Download className="h-4 w-4" /> Descargar planilla
+                          </Link>
+                        )}
                         {info.estado === 'cerrada' && siguiente && (
                           <Link to={`/aula/${siguiente.id}`} className="btn btn-secundario">
                             Próxima: {fechaCorta(siguiente.fecha)} <ArrowRight className="h-4 w-4" />

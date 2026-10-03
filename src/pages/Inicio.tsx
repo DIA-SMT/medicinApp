@@ -1,4 +1,4 @@
-import { ArrowRight, BatteryLow, CalendarDays, Camera, ChevronDown, CircleCheck, Clock, FileSpreadsheet, FingerprintPattern, IdCard, MessageCircle, QrCode, ScanLine, ShieldCheck, Smartphone, Timer, UserX } from 'lucide-react'
+import { ArrowRight, BatteryLow, CalendarDays, Camera, ChevronDown, CircleCheck, Clock, FileSpreadsheet, FingerprintPattern, IdCard, MessageCircle, PlayCircle, QrCode, ScanLine, ShieldCheck, Smartphone, Timer, UserX } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Agendar } from '../components/Agendar'
 import { DnaHelix } from '../components/DnaHelix'
@@ -165,6 +165,9 @@ export function Inicio() {
               </li>
             ))}
           </ol>
+          <a href="/p/?tutorial=1" className="al-ver btn btn-secundario mt-5 !py-3">
+            <PlayCircle className="h-5 w-5 text-rosa" /> Ver el paso a paso con un ejemplo
+          </a>
           <p className="mt-4 text-sm text-slate-500">
             ¿La cámara no lee el QR? Entrá a <a href="/p/" className="font-medium text-rosa underline-offset-4 hover:underline">{location.host}/p/</a> y escribí el código de 6 dígitos que aparece debajo.
           </p>

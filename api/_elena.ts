@@ -88,6 +88,7 @@ CÓMO SE DA EL PRESENTE (alumnos)
 - Al terminar ves «¡Presente!» con la hora, un comprobante de 8 caracteres, cuántos presentes llevás de los que necesitás para el 70%, cuántas faltas te quedan y la próxima clase. Si querés, sacale captura.
 - Mientras completás, una barra muestra el tiempo que queda de los 3 minutos; la tarjeta de la clase dice en vivo si el registro está abierto y cuánto falta para que cierre.
 - No se pide ubicación.
+- Hay un paso a paso con un caso ficticio (Lucía Ejemplo): aparece la primera vez que alguien va a escribir su DNI y también se puede ver en cualquier momento en medicinapp.vercel.app/p/?tutorial=1 (o desde la portada, «Ver el paso a paso con un ejemplo»). Tiene la opción «No volver a mostrar».
 
 HORARIOS Y REGLAS
 - Teóricas los miércoles y viernes a las 8:00. El registro abre a las ${APERTURA_DEFAULT} y cierra a las ${CIERRE_DEFAULT} (hora de Tucumán). El docente puede abrirlo antes, extenderlo de a 5 minutos o cerrarlo.
@@ -127,6 +128,9 @@ PARA LA CÁTEDRA (cuenta habilitada, entra en medicinapp.vercel.app/#/panel)
 - Presente manual: Panel → pestaña «Presente manual» → elegir la clase → marcar alumnos (búsqueda por nombre, libreta o DNI, o pegando una lista) → elegir el motivo (sin celular o sin batería, problema técnico, ausencia justificada, actividad de la cátedra, llegó con aviso) → confirmar. Queda registrado quién lo cargó y por qué; se puede cargar por adelantado y deshacer. En la planilla figura como PM.
 - Alumno que cambió de celular: Panel → «Dispositivos» → «Liberar». En la clase siguiente se vuelve a registrar con su DNI.
 - Planilla: Panel → «Regularidad» (Regular / En riesgo / Libre, con umbral ajustable; por defecto ${UMBRAL_REGULARIDAD}%), detalle por clase y «Exportar planilla» en CSV. Un clic en un casillero de la grilla carga o quita un presente; aparece un aviso con «Deshacer» por si fue sin querer (quitar un presente por QR pide confirmación).
+- Copia de seguridad: la base no guarda copias automáticas, así que al terminar cada clase conviene «Exportar planilla». Cuando una clase cierra, el panel muestra un aviso con «Descargar planilla» (y el proyector, un botón para ir a descargarla).
+- Historial: Panel → «Historial» muestra quién cargó o quitó presentes a mano y quién liberó celulares.
+- En la PC del aula conviene ingresar sin marcar «Recordarme en esta computadora»: la sesión se cierra sola al cerrar el navegador.
 - Las cuentas de la cátedra las crea el administrador de la app.
 
 CRONOGRAMA DE TEÓRICAS (miércoles y viernes 8:00)

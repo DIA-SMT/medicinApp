@@ -171,7 +171,84 @@ body {
   to { top: 96%; }
 }
 
+/* ── Tutorial: celular en miniatura con el caso ficticio ── */
+.tut-telefono {
+  position: relative;
+  width: 12.5rem;
+  height: 16rem;
+  overflow: hidden;
+  border: 5px solid var(--color-tinta);
+  border-radius: 1.6rem;
+  background: linear-gradient(180deg, #fff, var(--color-fondo));
+  box-shadow: 0 18px 40px -22px rgb(11 18 32 / 0.6);
+}
+.tut-notch {
+  position: absolute;
+  top: 0.35rem;
+  left: 50%;
+  width: 3.2rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--color-tinta);
+  transform: translateX(-50%);
+}
+.tut-campo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 2.4rem;
+  padding: 0 0.6rem;
+  border: 1.5px solid var(--color-vital);
+  border-radius: 0.7rem;
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--color-vital-suave);
+}
+.tut-tecla { opacity: 0; animation: tecla 0.01s both; }
+@keyframes tecla { to { opacity: 1; } }
+.tut-ok {
+  position: absolute;
+  right: 0.5rem;
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: var(--color-vital);
+  color: #fff;
+  animation: pop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.tut-boton {
+  border-radius: 0.7rem;
+  padding: 0.55rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-rosa), #a42fc4 60%, var(--color-violeta));
+  animation: entrada 0.4s ease-out both;
+}
+.tut-listo { animation: listo 1.8s ease-in-out infinite; }
+.tut-toque {
+  position: absolute;
+  top: 50%;
+  left: 62%;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin: -0.8rem;
+  border-radius: 999px;
+  background: rgb(11 18 32 / 0.25);
+  animation: toque 1.8s 0.6s ease-out infinite both;
+}
+@keyframes toque {
+  0% { transform: scale(0.4); opacity: 0; }
+  20% { transform: scale(1); opacity: 1; }
+  60%, 100% { transform: scale(1.8); opacity: 0; }
+}
+.tut-aparece { animation: entrada 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 @media (prefers-reduced-motion: reduce) {
+  .tut-tecla, .tut-ok, .tut-aparece, .tut-boton { animation: none; opacity: 1; }
+  .tut-toque { display: none; }
   .punto, .btn.listo, .chispa, .visor span, .crece { animation: none; }
   .chispa { display: none; }
 }

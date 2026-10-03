@@ -14,6 +14,13 @@ const app = document.getElementById('app')!
 const params = new URLSearchParams(location.search)
 const CLAVE_DNI = 'ciclo:alumno:dni'
 const CLAVE_NOMBRE = 'ciclo:alumno:nombre'
+// Misma clave que tutorial.ts: se lee acá para no descargar el tutorial a quien ya lo ocultó.
+const CLAVE_TUTORIAL_OCULTO = 'ciclo:tutorial:oculto'
+let tutorialMostrado = false
+
+/** Tutorial con caso ficticio: módulo aparte, se descarga sólo si se va a mostrar. */
+const abrirTutorial = (opciones: { vence?: number; textoFinal: string; alCerrar: () => void }) =>
+  import('./tutorial').then((m) => m.mostrarTutorial(opciones)).catch(() => opciones.alCerrar())
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 const soloDigitos = (s: string) => s.replace(/\D/g, '')
@@ -127,6 +134,7 @@ const barraPase = (vence: number) => `
   </div>`
 
 function pintar(sesion: Sesion | undefined, contenido: string) {
+  document.getElementById('tutorial')?.remove()
   alVencerPase = null
   clearTimeout(temporizador)
   sesionEnPantalla = sesion
@@ -404,7 +412,9 @@ async function registrar(sesion: Sesion, codigo: string) {
     const ok = document.getElementById('ok') as HTMLButtonElement
     const caja = document.getElementById('caja')!
     const ayuda = document.getElementById('ayuda')!
-    input.focus()
+    // Primera vez en este celular: el paso a paso con el caso ficticio, encima del formulario.
+    const conTutorial = !aviso && !tutorialMostrado && leer(CLAVE_TUTORIAL_OCULTO) !== '1'
+    if (!conTutorial) input.focus()
     input.addEventListener('input', () => {
       const d = soloDigitos(input.value).slice(0, 9)
       input.value = conPuntos(d)
@@ -420,6 +430,10 @@ async function registrar(sesion: Sesion, codigo: string) {
       const dni = soloDigitos(input.value)
       if (dni.length >= 7) identificar(dni, false)
     })
+    if (conTutorial) {
+      tutorialMostrado = true
+      abrirTutorial({ vence: pase!.vence, textoFinal: 'Empezar', alCerrar: () => document.getElementById('dni')?.focus() })
+    }
   }
 
   const dniGuardado = leer(CLAVE_DNI)
@@ -546,7 +560,7 @@ publico()
     tick()
     // En la pantalla del código, los horarios reales (p. ej. una apertura manual) pueden cambiar qué mostrar.
     const cod = document.getElementById('cod') as HTMLInputElement | null
-    if (!(s && c) && (!cod || !cod.value) && !document.getElementById('video')) pedirCodigo()
+    if (!(s && c) && (!cod || !cod.value) && !document.getElementById('video') && !document.getElementById('tutorial')) pedirCodigo()
   })
   .catch(() => {
     /* sin red: la página funciona igual, sin el estado en vivo */
@@ -560,4 +574,9 @@ if (s && c) {
   else mostrarError(undefined, 'SESION_INEXISTENTE')
 } else {
   pedirCodigo()
+  // /p/?tutorial=1 (desde la portada): el paso a paso sin estar en el aula.
+  if (params.has('tutorial')) {
+    tutorialMostrado = true
+    abrirTutorial({ textoFinal: 'Entendido', alCerrar: () => history.replaceState(null, '', '/p/') })
+  }
 }

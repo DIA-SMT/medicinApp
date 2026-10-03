@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CircleCheck, ClipboardList, Database, Download, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, ClipboardList, CloudDownload, Database, Download, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -46,6 +46,60 @@ function SelectorSesion({ valor, onCambiar }: { valor: string; onCambiar: (id: s
         </option>
       ))}
     </select>
+  )
+}
+
+// Recordatorio de respaldo: la base gratuita no hace copias automáticas, así que la planilla exportada
+// al terminar cada clase es la copia de seguridad. Se recuerda por computadora (localStorage).
+const claveExportada = (id: string) => `ciclo:exportado:${id}`
+const exportada = (id: string) => {
+  try {
+    return localStorage.getItem(claveExportada(id)) === '1'
+  } catch {
+    return false
+  }
+}
+const marcarExportadas = (ids: string[]) => {
+  try {
+    for (const id of ids) localStorage.setItem(claveExportada(id), '1')
+  } catch {
+    /* sin almacenamiento: el aviso vuelve a aparecer */
+  }
+}
+
+/** Aviso tras el cierre de una clase con presentes que todavía no se exportó desde esta computadora. */
+function RecordatorioExportar({ registros, onExportar }: { registros: Registro[]; onExportar: () => void }) {
+  const now = useNow(30_000)
+  const { ventanas } = useVentanas()
+  const [, forzar] = useState(0)
+  const hoy = hoyIso(now)
+  const pendiente = [...CRONOGRAMA]
+    .reverse()
+    .find((s) => s.fecha <= hoy && registros.some((r) => r.sesionId === s.id) && infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now).estado === 'cerrada' && !exportada(s.id))
+  if (!pendiente) return null
+  const n = registros.filter((r) => r.sesionId === pendiente.id).length
+  const hasta = CRONOGRAMA.filter((s) => s.fecha <= pendiente.fecha).map((s) => s.id)
+
+  return (
+    <div role="status" className="entrada mt-8 flex flex-wrap items-center gap-4 rounded-2xl border border-ambar/30 bg-ambar-suave p-4 sm:p-5">
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-ambar">
+        <CloudDownload className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-tinta">
+          La clase del {diaSemana(pendiente.fecha).toLowerCase()} {fechaCorta(pendiente.fecha)} ya cerró · {n} presente{n === 1 ? '' : 's'}
+        </div>
+        <p className="text-sm text-slate-600">Descargá la planilla al terminar cada clase: es la copia de seguridad (la base no guarda copias automáticas).</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primario" onClick={() => (onExportar(), marcarExportadas(hasta), forzar((x) => x + 1))}>
+          <Download className="h-4 w-4" /> Descargar planilla
+        </button>
+        <button className="btn btn-secundario" onClick={() => (marcarExportadas(hasta), forzar((x) => x + 1))}>
+          Ya la tengo
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -134,6 +188,7 @@ export function Panel() {
   const [filtro, setFiltro] = useState<Condicion | 'Todos'>('Todos')
   const [umbral, setUmbral] = useState(leerUmbral)
   const [busquedaDisp, setBusquedaDisp] = useState('')
+  const [, setExportes] = useState(0)
 
   const cargar = useCallback(() => {
     Promise.all([api.alumnos(), api.registros(), api.dispositivos()])
@@ -213,6 +268,8 @@ export function Panel() {
       ['Folio', 'Orden', 'Libreta', 'Apellido y Nombre', 'Documento', ...computables.map((s) => `Clase ${s.n} (${fechaCorta(s.fecha)})`), 'Presentes', 'Clases', '%', 'Condición'],
       ...filas.map((f) => [f.a.folio, f.a.orden, f.a.libreta, f.a.nombre, f.a.dni, ...computables.map((s) => (!f.marcas.has(s.id) ? 'A' : f.marcas.get(s.id)!.metodo === 'manual' ? 'PM' : 'P')), f.presentes, computables.length, f.porcentaje, f.condicion]),
     ])
+    marcarExportadas(computables.map((s) => s.id))
+    setExportes((x) => x + 1)
   }
 
   return (
@@ -248,6 +305,8 @@ export function Panel() {
           )}
         </div>
       </div>
+
+      <RecordatorioExportar registros={registros} onExportar={exportarPlanilla} />
 
       <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
 
