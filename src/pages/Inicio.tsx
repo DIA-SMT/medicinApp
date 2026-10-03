@@ -33,7 +33,7 @@ const PREGUNTAS: { icono: typeof Camera; p: string; r: string }[] = [
   { icono: UserX, p: '¿Puedo dar presente desde el celular de un compañero?', r: 'No. Cada celular queda vinculado a un solo alumno: si lo usás vos, tu compañero ya no puede registrarse con el suyo.' },
   { icono: Clock, p: `Llegué después de las ${CIERRE_DEFAULT}`, r: 'El registro ya cerró. Si estuviste en la clase, hablalo con la cátedra en el momento.' },
   { icono: QrCode, p: '¿Me sirve una foto del QR que me pasaron?', r: `No: el código del aula cambia cada ${TOTP_PASO_S} segundos y la foto llega vencida.` },
-  { icono: CircleCheck, p: '¿Dónde veo cuántos presentes llevo?', r: `Cada vez que das el presente la pantalla te muestra tu avance hacia el ${UMBRAL_REGULARIDAD}%. La planilla oficial la lleva la cátedra.` },
+  { icono: CircleCheck, p: '¿Dónde veo cuántos presentes llevo?', r: `En «Mi asistencia» (${location.host}/p/?mia=1), desde el celular con el que das el presente, ves todas tus clases y cuánto te falta para el ${UMBRAL_REGULARIDAD}%. También al dar presente. La planilla oficial la lleva la cátedra.` },
 ]
 
 const minimo = (n: number) => Math.ceil((n * UMBRAL_REGULARIDAD) / 100)
@@ -203,6 +203,9 @@ export function Inicio() {
                 primeras, serían {minimo(CRONOGRAMA.length)} de {CRONOGRAMA.length}.
               </p>
               <p className="mt-3 text-sm text-slate-500">Cada vez que das el presente, la pantalla te muestra cuántos llevás y cuántas faltas te quedan.</p>
+              <a href="/p/?mia=1" className="btn btn-secundario mt-4">
+                <CalendarDays className="h-4 w-4 text-rosa" /> Ver mi asistencia
+              </a>
             </div>
             <div aria-label={`${minimo(conApp)} presentes de ${conApp} clases`}>
               <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">

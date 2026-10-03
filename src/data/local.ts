@@ -151,6 +151,25 @@ export function crearLocal(): PublicoApi & AdminApi {
       return { ok: true, nombre: nombreCorto(a.nombre), libreta: libretaOculta(a.libreta), vinculo: !propio ? 'libre' : propio.huella === huella ? 'este' : 'otro' }
     },
 
+    async miAsistencia(dni, huella) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a) return fallo('DNI_DESCONOCIDO')
+      const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
+      if (disp[huella]?.libreta !== a.libreta) return fallo('DISPOSITIVO_AJENO')
+      const regs = leer<Registro[]>(K.registros, [])
+      const hoy = hoyIso()
+      return {
+        ok: true,
+        nombre: nombreCorto(a.nombre),
+        progreso: progresoDe(regs, a.libreta, ''),
+        clases: CRONOGRAMA.map((s) => ({
+          id: s.id,
+          dictada: s.fecha <= hoy && regs.some((r) => r.sesionId === s.id),
+          marca: regs.find((r) => r.sesionId === s.id && r.libreta === a.libreta)?.metodo ?? null,
+        })),
+      }
+    },
+
     async marcar(p) {
       const metodo = await validarPase(p.sesionId, p.pase)
       if (typeof metodo !== 'string') return metodo

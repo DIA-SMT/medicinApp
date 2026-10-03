@@ -272,10 +272,96 @@ function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>, huella:
         <div class="flex justify-between border-b border-linea pb-2"><span class="text-slate-400">Comprobante</span><span class="text-tinta">${esc(r.comprobante)}</span></div>
         <div class="flex items-center justify-between pt-2"><span class="text-slate-400">Celular vinculado</span><span class="flex items-center gap-1 text-vital">${svg(I.huella, 'h-3.5 w-3.5')} ${huellaCorta(huella)}</span></div>
       </div>
-      <p class="mt-4 text-xs text-slate-400">Listo, podés cerrar esta pantalla. La próxima clase alcanza con escanear.</p>
+      <a href="/p/?mia=1" class="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-rosa underline-offset-4 hover:underline">${svg(I.calendario, 'h-4 w-4')} Ver todas mis clases</a>
+      <p class="mt-3 text-xs text-slate-400">Listo, podés cerrar esta pantalla. La próxima clase alcanza con escanear.</p>
     </div>`,
   )
   if (r.estado === 'REGISTRADO') navigator.vibrate?.([30, 50, 80])
+}
+
+// ── Mi asistencia: las clases del alumno, consultadas desde su celular vinculado ──
+
+const enlaceMiAsistencia = (texto = 'Ver mi asistencia') =>
+  leer(CLAVE_DNI) ? `<a href="/p/?mia=1" class="btn btn-secundario mt-4 w-full">${svg(I.calendario, 'h-4 w-4 text-rosa')} ${texto}</a>` : ''
+
+const ESTADOS = {
+  presente: ['Presente', 'bg-vital-suave text-vital'],
+  manual: ['Presente · manual', 'bg-violeta-suave text-violeta'],
+  ausente: ['Ausente', 'bg-rosa-suave text-rosa-oscuro'],
+  hoy: ['Hoy', 'bg-ambar-suave text-ambar'],
+  futura: ['Próxima', 'bg-slate-100 text-slate-500'],
+  sinRegistro: ['No se tomó', 'bg-slate-100 text-slate-500'],
+} as const
+
+async function verMiAsistencia() {
+  history.replaceState(null, '', '/p/?mia=1')
+  const dni = leer(CLAVE_DNI)
+  if (!dni) {
+    return pintar(
+      undefined,
+      `<div class="tarjeta hud p-6">
+        <div class="grid h-12 w-12 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.calendario)}</div>
+        <h1 class="mt-4 text-2xl font-semibold text-tinta">Mi asistencia</h1>
+        <p class="mt-2 text-slate-600">Todavía no diste presente desde este celular. La primera vez es en clase: escaneás el QR y escribís tu DNI. Desde ahí vas a poder ver acá todas tus clases.</p>
+        <a href="/p/?tutorial=1" class="btn btn-secundario mt-5 w-full">Ver cómo se da el presente</a>
+      </div>`,
+    )
+  }
+  if (!cryptoDisponible()) return mostrarError(undefined, 'SIN_CRYPTO')
+  cargando(undefined, 'Buscando tus clases')
+  let huella: string
+  try {
+    huella = (await obtenerDispositivo()).huella
+  } catch {
+    return mostrarError(undefined, 'SIN_CRYPTO')
+  }
+  const r = await (await publico()).miAsistencia(dni, huella)
+  if (!r.ok) {
+    if (r.error === 'DISPOSITIVO_AJENO' || r.error === 'DNI_DESCONOCIDO') {
+      return pintar(
+        undefined,
+        `<div class="tarjeta hud p-6 text-center">
+          <div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.huella, 'h-7 w-7')}</div>
+          <h1 class="mt-4 text-xl font-semibold text-tinta">Se consulta desde tu celular</h1>
+          <p class="mt-2 text-slate-600">Tu asistencia sólo se puede ver desde el celular con el que das el presente. Si cambiaste de teléfono o borraste los datos del navegador, pedile a la cátedra que libere el anterior.</p>
+        </div>`,
+      )
+    }
+    return mostrarError(undefined, r.error, r.detalle, verMiAsistencia)
+  }
+
+  const hoy = hoyIso()
+  const filas = CRONOGRAMA.map((sesion) => {
+    const c = r.clases.find((x) => x.id === sesion.id)
+    const estado: keyof typeof ESTADOS = c?.marca
+      ? c.marca === 'manual'
+        ? 'manual'
+        : 'presente'
+      : c?.dictada
+        ? 'ausente'
+        : sesion.fecha === hoy
+          ? 'hoy'
+          : sesion.fecha > hoy
+            ? 'futura'
+            : 'sinRegistro'
+    const [texto, clases] = ESTADOS[estado]
+    return `<li class="flex items-center gap-3 px-4 py-2.5">
+      <div class="w-12 shrink-0 font-mono text-xs text-slate-400">${fechaCorta(sesion.fecha)}</div>
+      <div class="min-w-0 flex-1 truncate text-sm text-tinta">${esc(sesion.temas[0].titulo)}</div>
+      <span class="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${clases}">${texto}</span>
+    </li>`
+  }).join('')
+
+  pintar(
+    undefined,
+    `<div>
+      <div class="etiqueta">Mi asistencia</div>
+      <h1 class="mt-1 text-2xl font-semibold text-tinta">${esc(r.nombre)}</h1>
+      ${bloqueProgreso(r.progreso)}
+      <ol class="tarjeta mt-4 divide-y divide-slate-100 overflow-hidden">${filas}</ol>
+      <p class="mt-3 text-xs text-slate-400">«No se tomó»: ese día no hubo registro de asistencia y no cuenta. Si algo no coincide con lo que recordás, avisale a la cátedra.</p>
+    </div>`,
+  )
 }
 
 // ── Flujo ──
@@ -519,6 +605,7 @@ function pedirCodigo(aviso?: string) {
             : '<p class="mt-2 text-slate-600">Ya terminaron las teóricas de este cursado.</p>'
         }
         <p class="mt-4 text-sm text-slate-500">Para dar presente escaneá el QR del aula con la cámara del celular.</p>
+        ${enlaceMiAsistencia()}
       </div>`,
     )
   }
@@ -532,7 +619,8 @@ function pedirCodigo(aviso?: string) {
       <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="7" class="campo ${BarcodeDetector ? '' : 'mt-5'} text-center font-mono text-3xl tracking-[0.4em]" aria-label="Código de 6 dígitos" />
       ${aviso ? `<p class="mt-2 text-sm text-rosa-oscuro">${esc(aviso)}</p>` : ''}
       <button id="ok" class="btn ${BarcodeDetector ? 'btn-secundario' : 'btn-primario'} mt-4 w-full !py-3.5 text-base" disabled>Validar código</button>
-    </form>`,
+    </form>
+    ${enlaceMiAsistencia()}`,
   )
   const input = document.getElementById('cod') as HTMLInputElement
   const ok = document.getElementById('ok') as HTMLButtonElement
@@ -560,7 +648,8 @@ publico()
     tick()
     // En la pantalla del código, los horarios reales (p. ej. una apertura manual) pueden cambiar qué mostrar.
     const cod = document.getElementById('cod') as HTMLInputElement | null
-    if (!(s && c) && (!cod || !cod.value) && !document.getElementById('video') && !document.getElementById('tutorial')) pedirCodigo()
+    const enMiAsistencia = new URLSearchParams(location.search).has('mia')
+    if (!(s && c) && !enMiAsistencia && (!cod || !cod.value) && !document.getElementById('video') && !document.getElementById('tutorial')) pedirCodigo()
   })
   .catch(() => {
     /* sin red: la página funciona igual, sin el estado en vivo */
@@ -572,6 +661,8 @@ if (s && c) {
   const sesion = sesionPorId(s)
   if (sesion) registrar(sesion, c).catch(() => mostrarError(sesion, 'RED'))
   else mostrarError(undefined, 'SESION_INEXISTENTE')
+} else if (params.has('mia')) {
+  verMiAsistencia().catch(() => mostrarError(undefined, 'RED'))
 } else {
   pedirCodigo()
   // /p/?tutorial=1 (desde la portada): el paso a paso sin estar en el aula.

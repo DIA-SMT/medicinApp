@@ -93,6 +93,14 @@ const p = r.progreso
 ok(p && p.presentes === 1 && p.dictadas === 1 && p.dictadas + p.restantes <= 12, 'marcar devuelve el progreso: la clase en curso cuenta como dictada', p)
 r = await marcar('10000001', huella, jwk)
 ok(r.ok && r.estado === 'YA_REGISTRADO' && r.progreso, 'reintento idempotente → YA_REGISTRADO (con progreso)')
+
+// ── Mi asistencia (consulta del alumno desde su celular vinculado) ──
+let mia = (await one('select mi_asistencia($1,$2) r', ['10.000.001', huella])).r
+ok(mia.ok && mia.nombre === 'Demo, A.' && mia.clases.length === 12 && mia.clases.find((c) => c.id === SID).marca === 'qr' && mia.progreso, 'mi_asistencia desde el celular vinculado', mia.progreso)
+mia = (await one('select mi_asistencia($1,$2) r', ['10000001', 'f'.repeat(64)])).r
+ok(!mia.ok && mia.error === 'DISPOSITIVO_AJENO', 'mi_asistencia desde otro celular → no muestra nada')
+mia = (await one('select mi_asistencia($1,$2) r', ['99999999', huella])).r
+ok(!mia.ok && mia.error === 'DNI_DESCONOCIDO', 'mi_asistencia con DNI fuera del padrón → DNI_DESCONOCIDO')
 ok((await one(`select count(*)::int n from asistencias where libreta='MD0000001'`)).n === 1, 'una sola fila en asistencias')
 ok((await one(`select libreta from dispositivos where huella=$1`, [huella])).libreta === 'MD0000001', 'dispositivo vinculado al alumno')
 r = await marcar('10000002', huella, jwk)

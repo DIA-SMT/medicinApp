@@ -68,6 +68,11 @@ export interface Progreso {
   restantes: number
 }
 
+/** Lo que ve el alumno en «Mi asistencia»: sus clases y su avance hacia la regularidad. */
+export type ResultadoMiAsistencia =
+  | { ok: true; nombre: string; progreso: Progreso; clases: { id: string; dictada: boolean; marca: Metodo | null }[] }
+  | Fallo
+
 export interface PedidoMarca {
   sesionId: string
   pase: string
@@ -105,6 +110,8 @@ export interface PublicoApi {
   abrirPase(sesionId: string, codigo: string): Promise<ResultadoPase>
   identificar(sesionId: string, pase: string, dni: string, huella: string): Promise<ResultadoIdentificacion>
   marcar(p: PedidoMarca): Promise<ResultadoMarca>
+  /** Sólo responde al celular vinculado a ese DNI. */
+  miAsistencia(dni: string, huella: string): Promise<ResultadoMiAsistencia>
 }
 
 /** Lo que usa la cátedra: proyector, póster y panel. Se carga recién al entrar con usuario. */

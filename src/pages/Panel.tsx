@@ -186,6 +186,7 @@ export function Panel() {
   const [error, setError] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState<Condicion | 'Todos'>('Todos')
+  const [orden, setOrden] = useState<'planilla' | 'apellido' | 'asistencia'>('planilla')
   const [umbral, setUmbral] = useState(leerUmbral)
   const [busquedaDisp, setBusquedaDisp] = useState('')
   const [, setExportes] = useState(0)
@@ -237,8 +238,17 @@ export function Panel() {
 
   const visibles = useMemo(() => {
     const q = sinTildes(busqueda.trim())
-    return filas.filter((f) => (filtro === 'Todos' || f.condicion === filtro) && (!q || sinTildes(`${f.a.nombre} ${f.a.libreta} ${f.a.dni}`).includes(q)))
-  }, [filas, busqueda, filtro])
+    const lista = filas.filter((f) => (filtro === 'Todos' || f.condicion === filtro) && (!q || sinTildes(`${f.a.nombre} ${f.a.libreta} ${f.a.dni}`).includes(q)))
+    // «Menor asistencia primero»: para encontrar rápido a quién avisar antes de que quede libre.
+    if (orden === 'apellido') return [...lista].sort((x, y) => x.a.nombre.localeCompare(y.a.nombre, 'es'))
+    if (orden === 'asistencia') return [...lista].sort((x, y) => x.porcentaje - y.porcentaje || x.a.nombre.localeCompare(y.a.nombre, 'es'))
+    return lista
+  }, [filas, busqueda, filtro, orden])
+  const porCondicion = useMemo(() => {
+    const n: Record<Condicion | 'Todos', number> = { Todos: filas.length, Regular: 0, 'En riesgo': 0, Libre: 0 }
+    for (const f of filas) n[f.condicion]++
+    return n
+  }, [filas])
 
   if (error) return <p className="mx-auto max-w-3xl p-10 text-rosa-oscuro">No se pudieron cargar los datos: {error}</p>
   if (!alumnos)
@@ -389,10 +399,15 @@ export function Panel() {
                   onClick={() => setFiltro(c)}
                   className={`rounded-full border px-3 py-1.5 font-mono text-[0.65rem] tracking-wider uppercase transition ${filtro === c ? 'border-tinta bg-tinta text-white' : 'border-linea bg-white text-slate-500 hover:text-tinta'}`}
                 >
-                  {c}
+                  {c} <span className="opacity-70">({porCondicion[c]})</span>
                 </button>
               ))}
             </div>
+            <select className="campo !w-auto !py-1.5 text-xs" value={orden} onChange={(e) => setOrden(e.target.value as typeof orden)} aria-label="Ordenar alumnos">
+              <option value="planilla">Orden de la planilla</option>
+              <option value="apellido">Por apellido</option>
+              <option value="asistencia">Menor asistencia primero</option>
+            </select>
             <label className="flex items-center gap-2 font-mono text-xs text-slate-500">
               Umbral
               <input type="range" min={50} max={100} step={5} value={umbral} onChange={(e) => setUmbral(Number(e.target.value))} className="accent-rosa" />

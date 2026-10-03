@@ -362,6 +362,37 @@ begin
   );
 end $$;
 
+/**
+ * «Mi asistencia»: el alumno consulta sus clases desde el celular vinculado. Exige el DNI y la huella del
+ * dispositivo registrado para esa libreta (que sólo conoce ese celular): saber un DNI no alcanza para ver
+ * la asistencia de otra persona. Sin celular vinculado todavía, no hay nada que mostrar.
+ */
+create or replace function public.mi_asistencia(p_dni text, p_huella text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare a alumnos; hoy date := (now() at time zone 'America/Argentina/Tucuman')::date;
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g');
+  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  if not exists (select 1 from dispositivos where libreta = a.libreta and huella = p_huella) then
+    return public._fallo('DISPOSITIVO_AJENO');
+  end if;
+  return jsonb_build_object(
+    'ok', true,
+    'nombre', public._nombre_corto(a.nombre),
+    'progreso', public._progreso(a.libreta, null),
+    'clases', (
+      select jsonb_agg(jsonb_build_object(
+        'id', s.id,
+        -- dictada = ya pasó y se tomó asistencia (misma regla que el panel)
+        'dictada', s.fecha <= hoy and exists (select 1 from asistencias t where t.sesion_id = s.id),
+        'marca', x.metodo
+      ) order by s.fecha)
+      from sesiones s left join asistencias x on x.sesion_id = s.id and x.libreta = a.libreta
+    )
+  );
+end $$;
+
 -- ── API de cátedra (requiere usuario en la tabla docentes) ──────────────────
 
 create or replace function public.docente_secreto(p_sesion text) returns text
@@ -397,7 +428,7 @@ from public, anon, authenticated;
 revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente()
 from public, anon;
 
-grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text),
+grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text), public.mi_asistencia(text, text),
   public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
 to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente() to authenticated;

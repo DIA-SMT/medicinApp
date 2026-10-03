@@ -2,7 +2,7 @@
 // Es lo único que descarga el celular del alumno además de la página de registro.
 import { CRONOGRAMA } from '../lib/cronograma'
 import { ventanaDefault, type Ventana } from '../lib/time'
-import type { Fallo, PublicoApi, ResultadoIdentificacion, ResultadoMarca, ResultadoPase } from './types'
+import type { Fallo, PublicoApi, ResultadoIdentificacion, ResultadoMarca, ResultadoMiAsistencia, ResultadoPase } from './types'
 
 const BASE = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1`
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
@@ -87,6 +87,8 @@ export const restPublico: PublicoApi = {
 
   identificar: (sesionId, pase, dni, huella) =>
     rpc<ResultadoIdentificacion>('identificar', { p_sesion: sesionId, p_pase: pase, p_dni: dni, p_huella: huella }),
+
+  miAsistencia: (dni, huella) => rpc<ResultadoMiAsistencia>('mi_asistencia', { p_dni: dni, p_huella: huella }),
 
   marcar: (p) =>
     rpc<ResultadoMarca>('marcar_presente', {
