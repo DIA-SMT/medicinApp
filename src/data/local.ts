@@ -7,7 +7,18 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, DispositivoVinculado, Fallo, Metodo, PublicoApi, Registro } from './types'
+import type { AdminApi, Alumno, DispositivoVinculado, Fallo, Metodo, Progreso, PublicoApi, Registro } from './types'
+
+/** Igual que public._progreso en SQL y que la planilla del panel. */
+function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
+  const hoy = hoyIso()
+  const dictadas = CRONOGRAMA.filter((s) => (s.fecha <= hoy || s.id === sesionId) && regs.some((r) => r.sesionId === s.id))
+  return {
+    presentes: dictadas.filter((s) => regs.some((r) => r.sesionId === s.id && r.libreta === libreta)).length,
+    dictadas: dictadas.length,
+    restantes: CRONOGRAMA.filter((s) => s.fecha >= hoy && !dictadas.includes(s)).length,
+  }
+}
 
 const K = {
   secretos: 'ciclo:v1:secretos',
@@ -155,12 +166,12 @@ export function crearLocal(): PublicoApi & AdminApi {
       const regs = leer<Registro[]>(K.registros, [])
       const previo = regs.find((r) => r.sesionId === p.sesionId && r.libreta === a.libreta)
       if (previo) {
-        return { ok: true, estado: 'YA_REGISTRADO', marcadoEn: previo.marcadoEn, nombre: nombreCorto(a.nombre), distanciaM: previo.distanciaM ?? null, comprobante: await comprobante(p.sesionId, a.libreta, previo.marcadoEn) }
+        return { ok: true, estado: 'YA_REGISTRADO', marcadoEn: previo.marcadoEn, nombre: nombreCorto(a.nombre), distanciaM: previo.distanciaM ?? null, progreso: progresoDe(regs, a.libreta, p.sesionId), comprobante: await comprobante(p.sesionId, a.libreta, previo.marcadoEn) }
       }
       const marcadoEn = Date.now()
       regs.push({ sesionId: p.sesionId, libreta: a.libreta, nombre: a.nombre, marcadoEn, metodo, distanciaM, precisionM: p.ubicacion?.precision ?? null, huella: p.huella })
       escribir(K.registros, regs)
-      return { ok: true, estado: 'REGISTRADO', marcadoEn, nombre: nombreCorto(a.nombre), distanciaM, comprobante: await comprobante(p.sesionId, a.libreta, marcadoEn) }
+      return { ok: true, estado: 'REGISTRADO', marcadoEn, nombre: nombreCorto(a.nombre), distanciaM, progreso: progresoDe(regs, a.libreta, p.sesionId), comprobante: await comprobante(p.sesionId, a.libreta, marcadoEn) }
     },
 
     async autenticado() {

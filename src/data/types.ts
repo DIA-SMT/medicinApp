@@ -55,8 +55,17 @@ export type ResultadoIdentificacion =
   | Fallo
 
 export type ResultadoMarca =
-  | { ok: true; estado: 'REGISTRADO' | 'YA_REGISTRADO'; marcadoEn: number; comprobante: string; nombre: string; distanciaM: number | null }
+  | { ok: true; estado: 'REGISTRADO' | 'YA_REGISTRADO'; marcadoEn: number; comprobante: string; nombre: string; distanciaM: number | null; progreso?: Progreso }
   | Fallo
+
+/** Avance del alumno hacia la regularidad (misma regla que el panel). */
+export interface Progreso {
+  presentes: number
+  /** Clases ya dictadas en las que se tomó asistencia. */
+  dictadas: number
+  /** Clases de hoy en adelante que todavía no se tomaron. */
+  restantes: number
+}
 
 export interface PedidoMarca {
   sesionId: string

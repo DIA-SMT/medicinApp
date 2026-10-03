@@ -14,3 +14,164 @@ body {
     #fff;
   background-attachment: fixed;
 }
+
+/* ── Estado del registro en la tarjeta de la clase ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid;
+}
+.chip-vital { color: var(--color-vital); background: var(--color-vital-suave); border-color: rgb(14 159 104 / 0.25); }
+.chip-ambar { color: var(--color-ambar); background: var(--color-ambar-suave); border-color: rgb(194 124 3 / 0.25); }
+.chip-gris { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; }
+.punto {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 0 currentColor;
+  animation: punto 1.6s ease-out infinite;
+}
+@keyframes punto {
+  0% { box-shadow: 0 0 0 0 rgb(14 159 104 / 0.55); }
+  100% { box-shadow: 0 0 0 7px rgb(14 159 104 / 0); }
+}
+
+/* ── Pasos: Escaneo → Tu DNI → Confirmar ── */
+.pasos {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+.pasos li {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.pasos li:not(:last-child)::after {
+  content: '';
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-linea);
+}
+.pasos li span {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid #d5dae5;
+  background: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.pasos li.hecho { color: var(--color-vital); }
+.pasos li.hecho span { border-color: var(--color-vital); background: var(--color-vital); color: #fff; }
+.pasos li.hecho::after { background: var(--color-vital); }
+.pasos li.actual { color: var(--color-tinta); font-weight: 600; }
+.pasos li.actual span { border-color: var(--color-rosa); color: var(--color-rosa); box-shadow: 0 0 0 3px var(--color-rosa-suave); }
+
+/* ── Barras: tiempo del pase y progreso de regularidad ── */
+.barra {
+  height: 0.4rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef1f6;
+}
+.barra > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-cian), var(--color-vital));
+  transition: width 1s linear, background 0.4s;
+}
+.pase.apurado b { color: var(--color-rosa); }
+.pase.apurado .barra > span { background: linear-gradient(90deg, var(--color-rosa), #f0629b); }
+.crece { animation: crece 0.9s 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: left; }
+@keyframes crece {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* ── DNI: tilde verde cuando está completo ── */
+.caja-dni { position: relative; }
+.caja-dni .ok-dni {
+  position: absolute;
+  top: 50%;
+  right: 0.9rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--color-vital);
+  color: #fff;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.4);
+  transition: opacity 0.2s, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.caja-dni.valido .campo { border-color: var(--color-vital); box-shadow: 0 0 0 4px var(--color-vital-suave); }
+.caja-dni.valido .ok-dni { opacity: 1; transform: translateY(-50%) scale(1); }
+
+/* Botón principal "listo para tocar" */
+.btn.listo { animation: listo 1.8s ease-in-out infinite; }
+@keyframes listo {
+  0%, 100% { box-shadow: 0 10px 24px -12px rgb(224 36 111 / 0.75); }
+  50% { box-shadow: 0 10px 30px -8px rgb(224 36 111 / 0.95), 0 0 0 5px rgb(224 36 111 / 0.1); }
+}
+
+/* ── Festejo: chispas que salen del círculo verde ── */
+.chispa {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: -0.25rem;
+  border-radius: 999px;
+  opacity: 0;
+  animation: chispa 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes chispa {
+  0% { opacity: 1; transform: translate(0, 0) scale(0.6); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(1); }
+}
+
+/* ── Escáner: recuadro con línea que barre ── */
+.visor {
+  position: absolute;
+  inset: 18%;
+  border: 2px solid rgb(255 255 255 / 0.85);
+  border-radius: 1rem;
+  box-shadow: 0 0 0 999px rgb(11 18 32 / 0.35);
+  overflow: hidden;
+}
+.visor span {
+  position: absolute;
+  inset-inline: 0;
+  height: 2px;
+  background: var(--color-rosa);
+  box-shadow: 0 0 12px var(--color-rosa);
+  animation: visor 2.4s ease-in-out infinite alternate;
+}
+@keyframes visor {
+  from { top: 4%; }
+  to { top: 96%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .punto, .btn.listo, .chispa, .visor span, .crece { animation: none; }
+  .chispa { display: none; }
+}

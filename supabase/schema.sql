@@ -271,6 +271,22 @@ begin
   );
 end $$;
 
+/** Progreso del alumno hacia la regularidad, con la misma regla que el panel: cuentan las clases ya
+    dictadas en las que se tomó asistencia (y la que se está dictando, aunque el docente la haya abierto otro día);
+    "restantes" son las de hoy en adelante que todavía no. */
+create or replace function public._progreso(p_libreta text, p_sesion text) returns jsonb
+language sql stable set search_path = public as $$
+  with hoy as (select (now() at time zone 'America/Argentina/Tucuman')::date d),
+  dictadas as (
+    select distinct a.sesion_id from asistencias a join sesiones s on s.id = a.sesion_id, hoy where s.fecha <= hoy.d or s.id = p_sesion
+  )
+  select jsonb_build_object(
+    'presentes', (select count(*) from dictadas d where exists (select 1 from asistencias x where x.sesion_id = d.sesion_id and x.libreta = p_libreta)),
+    'dictadas', (select count(*) from dictadas),
+    'restantes', (select count(*) from sesiones s, hoy where s.fecha >= hoy.d and s.id not in (select sesion_id from dictadas))
+  )
+$$;
+
 create or replace function public.marcar_presente(
   p_sesion text, p_pase text, p_dni text, p_huella text, p_public_jwk jsonb, p_firma text, p_ts bigint,
   p_lat double precision default null, p_lng double precision default null, p_precision double precision default null
@@ -329,6 +345,7 @@ begin
     'marcadoEn', public._ms(t),
     'nombre', public._nombre_corto(a.nombre),
     'distanciaM', round(dist),
+    'progreso', public._progreso(a.libreta, p_sesion),
     'comprobante', (select upper(substr(h, 1, 4) || '-' || substr(h, 5, 4))
                     from (select encode(digest(p_sesion || '|' || a.libreta || '|' || public._ms(t), 'sha256'), 'hex') h) x)
   );
@@ -364,7 +381,7 @@ revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
   public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text),
   public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
-  public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text)
+  public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text), public._progreso(text, text)
 from public, anon, authenticated;
 revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente()
 from public, anon;

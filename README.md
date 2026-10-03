@@ -44,7 +44,7 @@ embebido (PGlite): 34 casos, incluida la paridad exacta del TOTP entre JavaScrip
 ```bash
 npm install
 npm run dev              # usa .env.local (Supabase real)
-VITE_DEMO=1 npm run dev  # modo demo: datos en el navegador, DNI ficticio 10000001
+npm run dev:demo         # modo demo (puerto 5174): datos en el navegador, DNI ficticio 10000001
 ```
 
 En modo demo: aula → «Abrir ahora · 10 min» → «Abrir como alumno». «Simular 25 llegadas» y, en el panel,
