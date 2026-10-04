@@ -1,4 +1,4 @@
-import { ArrowLeft, Camera, CircleCheck, Clock, IdCard, Printer, ShieldCheck, Smartphone } from 'lucide-react'
+import { ArrowLeft, Camera, CircleCheck, Clock, FileText, IdCard, Printer, ShieldCheck, Smartphone } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EcgLine } from '../components/EcgLine'
@@ -27,6 +27,7 @@ export function Poster() {
   const { ventanas } = useVentanas()
   const v = ventanas?.[id] ?? ventanaDefault()
   const [clave, setClave] = useState<string | null>(null)
+  const [generando, setGenerando] = useState(false)
 
   useEffect(() => {
     if (sesion) api.secreto(sesion.id).then((s) => clavePoster(s, sesion.id)).then(setClave).catch(() => {})
@@ -41,9 +42,26 @@ export function Poster() {
         <Link to={`/aula/${sesion.id}`} className="btn btn-secundario">
           <ArrowLeft className="h-4 w-4" /> Volver al aula
         </Link>
-        <button className="btn btn-primario" onClick={() => window.print()} disabled={!clave}>
-          <Printer className="h-4 w-4" /> Imprimir A4
-        </button>
+        <div className="flex gap-2">
+          <button
+            className="btn btn-primario"
+            disabled={!clave || generando}
+            onClick={async () => {
+              setGenerando(true)
+              try {
+                const { posterPdf, descargar } = await import('../lib/pdf')
+                descargar(await posterPdf({ sesion, url, apertura: v.apertura, cierre: v.cierre }))
+              } finally {
+                setGenerando(false)
+              }
+            }}
+          >
+            <FileText className="h-4 w-4" /> {generando ? 'Generando…' : 'Descargar PDF'}
+          </button>
+          <button className="btn btn-secundario" onClick={() => window.print()} disabled={!clave}>
+            <Printer className="h-4 w-4" /> Imprimir
+          </button>
+        </div>
       </div>
 
       {/* Hoja A4 */}

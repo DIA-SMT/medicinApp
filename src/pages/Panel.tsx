@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CircleCheck, ClipboardList, CloudDownload, Database, Download, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -190,6 +190,7 @@ export function Panel() {
   const [umbral, setUmbral] = useState(leerUmbral)
   const [busquedaDisp, setBusquedaDisp] = useState('')
   const [, setExportes] = useState(0)
+  const [generando, setGenerando] = useState(false)
 
   const cargar = useCallback(() => {
     Promise.all([api.alumnos(), api.registros(), api.dispositivos()])
@@ -286,7 +287,23 @@ export function Panel() {
   const cuenta = (c: Condicion) => filas.filter((f) => f.condicion === c).length
   const manuales = registros.filter((r) => r.metodo === 'manual').length
 
-  const exportarPlanilla = () => {
+  /** PDF con el diseño de la app (jsPDF se descarga recién acá). */
+  const exportarPlanilla = async () => {
+    setGenerando(true)
+    try {
+      const { planillaPdf, descargar } = await import('../lib/pdf')
+      descargar(await planillaPdf({ filas, computables, umbral }))
+      marcarExportadas(computables.map((s) => s.id))
+      setExportes((x) => x + 1)
+    } catch (e) {
+      mostrar(`No se pudo generar el PDF: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setGenerando(false)
+    }
+  }
+
+  /** Los mismos datos en CSV, para abrir en Excel o guardar como copia de los datos. */
+  const exportarCsv = () => {
     descargarCsv(`planilla-regularidad-ginecologia-${hoy}.csv`, [
       ['Folio', 'Orden', 'Libreta', 'Apellido y Nombre', 'Documento', ...computables.map((s) => `Clase ${s.n} (${fechaCorta(s.fecha)})`), 'Presentes', 'Clases', '%', 'Condición'],
       ...filas.map((f) => [f.a.folio, f.a.orden, f.a.libreta, f.a.nombre, f.a.dni, ...computables.map((s) => (!f.marcas.has(s.id) ? 'A' : f.marcas.get(s.id)!.metodo === 'manual' ? 'PM' : 'P')), f.presentes, computables.length, f.porcentaje, f.condicion]),
@@ -318,8 +335,11 @@ export function Panel() {
           <button className="btn btn-secundario" onClick={() => ir({ tab: 'manual' })}>
             <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
           </button>
-          <button className="btn btn-primario" onClick={exportarPlanilla}>
-            <Download className="h-4 w-4" /> Exportar planilla
+          <button className="btn btn-primario" onClick={exportarPlanilla} disabled={generando}>
+            <FileText className="h-4 w-4" /> {generando ? 'Generando PDF…' : 'Descargar planilla (PDF)'}
+          </button>
+          <button className="btn btn-secundario !px-3" onClick={exportarCsv} title="Los mismos datos en CSV, para Excel o como copia de los datos">
+            <Download className="h-4 w-4" /> CSV
           </button>
           {api.modo === 'supabase' && (
             <button className="btn btn-secundario" onClick={() => api.salir().then(() => location.reload())} title="Cerrar la sesión de la cátedra en esta computadora">
@@ -778,6 +798,19 @@ function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar, avisar 
   const ausentes = alumnos.filter((a) => !presentes.has(a.libreta))
   const porAlumno = new Map(alumnos.map((a) => [a.libreta, a]))
 
+  const [generando, setGenerando] = useState(false)
+  const exportarPdf = async () => {
+    setGenerando(true)
+    try {
+      const { listaClasePdf, descargar } = await import('../lib/pdf')
+      descargar(await listaClasePdf({ sesion, alumnos, registros }))
+    } catch (e) {
+      avisar(`No se pudo generar el PDF: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setGenerando(false)
+    }
+  }
+
   const exportar = () =>
     descargarCsv(`asistencia-${sesion.id}.csv`, [
       ['Libreta', 'Apellido y Nombre', 'Documento', 'Estado', 'Hora', 'Método', 'Motivo (manual)', 'Cargado por'],
@@ -798,7 +831,10 @@ function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar, avisar 
           <button className="btn btn-secundario !py-2" onClick={() => setVerAusentes((x) => !x)}>
             {verAusentes ? 'Ver presentes' : 'Ver ausentes'}
           </button>
-          <button className="btn btn-secundario !py-2" onClick={exportar}>
+          <button className="btn btn-primario !py-2" onClick={exportarPdf} disabled={generando}>
+            <FileText className="h-4 w-4" /> {generando ? 'Generando…' : 'PDF'}
+          </button>
+          <button className="btn btn-secundario !px-3 !py-2" onClick={exportar} title="Los mismos datos en CSV, para Excel">
             <Download className="h-4 w-4" /> CSV
           </button>
         </div>
