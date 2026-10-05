@@ -1,18 +1,17 @@
-import { ArrowLeft, ArrowRight, CalendarOff, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CalendarOff, Camera, CircleCheck, Clock, Download, ExternalLink, FlaskConical, IdCard, Lock, Maximize, Minimize, MoreHorizontal, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { EcgLine } from '../components/EcgLine'
 import { Marca, SelloUNT } from '../components/Logo'
 import { MarcoProgreso, QrCode } from '../components/QrCode'
-import { ChipArea, PildoraEstado } from '../components/ui'
+import { PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { ResumenSesion } from '../data/types'
 import { TOTP_PASO_S } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, docentesSesion, sesionPorId } from '../lib/cronograma'
 import { enlaceRegistro } from '../lib/enlaces'
-import { nombreCorto, pct } from '../lib/format'
+import { nombreCorto } from '../lib/format'
 import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
-import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, horaArt, infoVentana, sesionActual, suspendida, ventanaDefault, type Ventana } from '../lib/time'
+import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionActual, suspendida, ventanaDefault, type Ventana } from '../lib/time'
 import { contador, segundosRestantes, totp } from '../lib/totp'
 
 /** Qué significa cada error que ven los alumnos y qué puede hacer el docente. */
@@ -21,7 +20,7 @@ const FALLOS: Record<string, [string, string]> = {
   PASE_VENCIDO: ['Tardaron más de 3 min', 'Que vuelvan a escanear.'],
   DNI_DESCONOCIDO: ['DNI no encontrado', 'Error al escribirlo o alumno fuera del padrón.'],
   DISPOSITIVO_OCUPADO: ['Celular de otra persona', 'Comparten celular o quisieron dar presente por otro.'],
-  DISPOSITIVO_AJENO: ['Cambió de celular', 'Liberá el anterior en Panel → Dispositivos o presente manual.'],
+  DISPOSITIVO_AJENO: ['Cambió de celular', 'Que toque «Pasar mi presente a este celular». Si no tiene el anterior, aprobalo en Panel → Dispositivos.'],
   FIRMA_INVALIDA: ['Hora del celular mal', 'Que pongan fecha y hora automáticas.'],
   PROGRAMADA: ['Escanearon antes de abrir', 'El registro abre a la hora programada.'],
   CERRADA: ['Escanearon con el registro cerrado', 'Si están en clase: «+5 min» o presente manual.'],
@@ -48,30 +47,6 @@ function useWakeLock(activo: boolean) {
       lock?.release().catch(() => {})
     }
   }, [activo])
-}
-
-function Medidor({ valor, total }: { valor: number; total: number }) {
-  const r = 52
-  const c = 2 * Math.PI * r
-  const f = total ? Math.min(1, valor / total) : 0
-  return (
-    <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
-      <defs>
-        <linearGradient id="medidor" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#0e9f68" />
-          <stop offset="1" stopColor="#3fc49a" />
-        </linearGradient>
-      </defs>
-      <circle cx="60" cy="60" r={r} fill="none" stroke="#eef1f6" strokeWidth="9" />
-      {Array.from({ length: 40 }, (_, i) => (
-        <line key={i} x1="60" y1="2" x2="60" y2="5" stroke="#cbd5e1" strokeWidth="0.8" transform={`rotate(${i * 9} 60 60)`} />
-      ))}
-      <circle
-        cx="60" cy="60" r={r} fill="none" stroke="url(#medidor)" strokeWidth="9" strokeLinecap="round" strokeDasharray={c}
-        style={{ strokeDashoffset: c * (1 - f), transition: 'stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)' }}
-      />
-    </svg>
-  )
 }
 
 export function Aula() {
@@ -147,6 +122,14 @@ export function Aula() {
     return api.suscribir(cargar)
   }, [api, cargar])
 
+  // Menú «Más» de la barra inferior: se cierra al tocar afuera.
+  const mas = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const fuera = (e: PointerEvent) => mas.current?.open && !mas.current.contains(e.target as Node) && mas.current.removeAttribute('open')
+    document.addEventListener('pointerdown', fuera)
+    return () => document.removeEventListener('pointerdown', fuera)
+  }, [])
+
   const [pantalla, setPantalla] = useState(false)
   useEffect(() => {
     const f = () => setPantalla(!!document.fullscreenElement)
@@ -180,10 +163,20 @@ export function Aula() {
 
   const total = resumen?.total ?? 0
   const presentes = resumen?.presentes ?? 0
-  const progresoVentana = Math.min(1, Math.max(0, (now - info.abre) / (info.cierra - info.abre)))
   const porCerrar = abierta && info.cierra - now < 2 * 60e3
   const siguiente = clasesVigentes(ventanas).find((s) => s.fecha > sesion.fecha)
   const suspendidaAhora = info.estado === 'suspendida'
+  const esHoy = sesion.fecha === hoyIso(now)
+
+  // Qué mostrar mientras no hay QR. Un día que no es el de la clase no se ofrece abrirla:
+  // los alumnos quedarían presentes en una clase que todavía no se dictó (para probar está el ensayo).
+  const vista: { titulo: string; detalle: string; texto: string; boton: string | null; cuenta?: boolean } = sesion.ensayo
+    ? { titulo: 'Ensayo listo para empezar', detalle: 'No cuenta para la regularidad', texto: 'Abrilo y probá con celulares reales y los DNIs de prueba.', boton: info.estado === 'abierta' ? null : 'Empezar el ensayo' }
+    : info.estado === 'programada'
+      ? esHoy
+        ? { titulo: `El QR aparece solo a las ${hmArt(info.abre)}`, detalle: cuenta(info.abre - now), cuenta: true, texto: 'No hace falta tocar nada: dejá esta pantalla abierta, mejor en pantalla completa.', boton: 'Mostrar el QR ahora' }
+        : { titulo: `Clase del ${diaSemana(sesion.fecha).toLowerCase()} ${fechaCorta(sesion.fecha)}`, detalle: `El QR aparece solo ese día a las ${hmArt(info.abre)}`, texto: 'Para probar antes con celulares, usá el ensayo: no cuenta para la regularidad.', boton: null }
+      : { titulo: 'Registro cerrado', detalle: `Cerró a las ${hmArt(info.cierra)}`, texto: 'Si todavía hay alumnos sin registrar, reabrilo unos minutos.', boton: 'Reabrir 10 minutos' }
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden lg:min-h-[640px]">
@@ -230,9 +223,8 @@ export function Aula() {
         <div className="no-print flex flex-wrap items-center gap-3 border-b border-ambar/30 bg-ambar-suave px-4 py-2.5 text-sm lg:px-8">
           <TriangleAlert className="h-4 w-4 shrink-0 text-ambar" />
           <p className="min-w-0 flex-1 text-slate-700">
-            <b className="text-tinta">Clase de ensayo:</b> no cuenta para la regularidad. Abrila con «Abrir ahora», escaneá con celulares reales y usá un DNI de
-            prueba (<span className="font-mono">{DNIS_ENSAYO[0]}</span> a <span className="font-mono">{DNIS_ENSAYO[DNIS_ENSAYO.length - 1]}</span>): no vinculan el
-            celular. También sirve el DNI de un alumno real.
+            <b className="text-tinta">Ensayo:</b> no cuenta para la regularidad. DNIs de prueba: <span className="font-mono">{DNIS_ENSAYO[0]}</span> a{' '}
+            <span className="font-mono">{DNIS_ENSAYO[DNIS_ENSAYO.length - 1]}</span> (no vinculan el celular).
           </p>
           <button className="btn btn-secundario !py-1.5 !text-xs" onClick={terminarEnsayo} disabled={terminando}>
             {terminando ? 'Borrando…' : 'Terminar ensayo y borrar'}
@@ -281,27 +273,28 @@ export function Aula() {
                   ) : (
                     <>
                       <div className="relative grid h-20 w-20 place-items-center rounded-full border border-linea bg-white shadow-sm">
-                        <Lock className="h-9 w-9 text-slate-500" />
+                        {info.estado === 'programada' ? <Clock className="h-9 w-9 text-cian" /> : <Lock className="h-9 w-9 text-slate-500" />}
                       </div>
-                      <div className="relative font-display text-2xl font-semibold text-tinta">{info.estado === 'programada' ? 'Registro programado' : 'Registro cerrado'}</div>
-                      <div className="relative font-mono text-slate-500">
-                        {info.estado === 'programada' ? `Abre ${hmArt(info.abre)} · en ${cuenta(info.abre - now)}` : `Cerró a las ${hmArt(info.cierra)}`}
-                      </div>
-                      <p className="no-print relative max-w-xs px-4 text-sm text-slate-500">
-                        {info.estado === 'programada'
-                          ? `No hace falta tocar nada: el QR aparece solo a las ${hmArt(info.abre)}. Dejá esta pantalla abierta.`
-                          : 'Si todavía hay alumnos sin registrar, podés reabrirlo unos minutos.'}
-                      </p>
+                      <div className="relative px-6 font-display text-2xl leading-tight font-semibold text-tinta lg:text-3xl">{vista.titulo}</div>
+                      <div className={`relative font-mono ${vista.cuenta ? 'text-4xl font-semibold text-cian-oscuro tabular-nums' : 'text-slate-500'}`}>{vista.detalle}</div>
+                      <p className="no-print relative max-w-xs px-4 text-sm text-slate-500">{vista.texto}</p>
                       <div className="no-print relative flex flex-wrap justify-center gap-2 px-4">
-                        <button className="btn btn-primario" onClick={() => abrirAhora(10)}>
-                          <Unlock className="h-4 w-4" /> {info.estado === 'programada' ? 'Abrir ahora' : 'Reabrir'} · 10 min
-                        </button>
-                        {info.estado === 'cerrada' && (
+                        {vista.boton && (
+                          <button className="btn btn-primario !px-5 !py-3 text-base" onClick={() => abrirAhora(10)}>
+                            <Unlock className="h-5 w-5" /> {vista.boton}
+                          </button>
+                        )}
+                        {!vista.boton && !sesion.ensayo && (
+                          <Link to="/aula/ensayo" className="btn btn-primario">
+                            <FlaskConical className="h-4 w-4" /> Hacer un ensayo
+                          </Link>
+                        )}
+                        {info.estado === 'cerrada' && !sesion.ensayo && (
                           <Link to="/panel" className="btn btn-secundario" title="Copia de seguridad de la asistencia">
                             <Download className="h-4 w-4" /> Descargar planilla
                           </Link>
                         )}
-                        {info.estado === 'cerrada' && siguiente && (
+                        {info.estado === 'cerrada' && !sesion.ensayo && siguiente && (
                           <Link to={`/aula/${siguiente.id}`} className="btn btn-secundario">
                             Próxima: {fechaCorta(siguiente.fecha)} <ArrowRight className="h-4 w-4" />
                           </Link>
@@ -336,71 +329,46 @@ export function Aula() {
         <section className="flex min-h-0 flex-col gap-5">
           <div>
             <div className="etiqueta">
-              Clase Nº {String(sesion.n).padStart(2, '0')} · {diaSemana(sesion.fecha)} {fechaCorta(sesion.fecha)}
+              {sesion.ensayo ? 'Prueba del circuito' : `Clase Nº ${String(sesion.n).padStart(2, '0')} · ${diaSemana(sesion.fecha)} ${fechaCorta(sesion.fecha)}`}
             </div>
             <h1 className="mt-2 font-display leading-[1.02] font-bold text-tinta" style={{ fontSize: 'clamp(1.8rem, 3.4vw, 3.6rem)' }}>
               {sesion.temas.map((t) => t.titulo).join(' + ')}
             </h1>
-            {sesion.temas.some((t) => t.detalle) && <p className="mt-2 text-slate-500 lg:text-lg">{sesion.temas.map((t) => t.detalle).filter(Boolean).join(' · ')}</p>}
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className="flex items-center gap-2 text-slate-700">
-                <Stethoscope className="h-4 w-4 text-rosa" /> {docentesSesion(sesion)}
-              </span>
-              {[...new Set(sesion.temas.map((t) => t.area))].map((a) => (
-                <ChipArea key={a} area={a} />
-              ))}
-            </div>
+            <p className="mt-2 flex items-center gap-2 text-slate-600">
+              <Stethoscope className="h-4 w-4 text-rosa" /> {docentesSesion(sesion)}
+            </p>
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-2">
-            <div className={`tarjeta hud p-5 transition ${porCerrar ? 'ring-2 ring-ambar/60' : ''}`}>
-              <div className="flex items-center justify-between gap-2">
-                <PildoraEstado estado={info.estado} />
-                {porCerrar ? (
-                  <button className="btn btn-secundario no-print !border-ambar/50 !py-1 !text-xs text-ambar" onClick={() => extender(5)}>
-                    <Plus className="h-3.5 w-3.5" /> 5 min
-                  </button>
-                ) : (
-                  info.manual && <span className="font-mono text-[0.6rem] tracking-widest text-ambar uppercase">manual</span>
-                )}
+          {/* Estado y presentes en un solo bloque: lo que importa de un vistazo, sin adornos */}
+          <div className={`tarjeta hud relative grid grid-cols-2 overflow-hidden transition ${porCerrar ? 'ring-2 ring-ambar/60' : ''}`}>
+            {latido > 0 && <div key={latido} className="destello pointer-events-none absolute inset-0 bg-vital/10" />}
+            <div className="relative border-r border-linea p-5">
+              <PildoraEstado estado={info.estado} />
+              <div className="mt-3 font-mono text-[0.7rem] tracking-[0.2em] text-slate-400 uppercase">
+                {info.estado === 'programada' ? 'Abre en' : info.estado === 'abierta' ? 'Cierra en' : info.estado === 'suspendida' ? 'Suspendida' : 'Cerró a las'}
               </div>
-              <div className="mt-4 font-mono text-[0.7rem] tracking-[0.2em] text-slate-400 uppercase">
-                {info.estado === 'programada' ? 'Abre en' : info.estado === 'abierta' ? 'Cierra en' : info.estado === 'suspendida' ? 'Suspendida' : 'Cerrado'}
-              </div>
-              <div className={`font-mono font-bold tabular-nums ${info.estado === 'abierta' ? 'text-tinta' : 'text-slate-400'}`} style={{ fontSize: 'clamp(2.4rem, 4.6vw, 4.6rem)', lineHeight: 1 }}>
+              <div className={`font-mono font-bold tabular-nums ${info.estado === 'abierta' ? (porCerrar ? 'text-ambar' : 'text-tinta') : 'text-slate-400'}`} style={{ fontSize: 'clamp(2.2rem, 4.2vw, 4.2rem)', lineHeight: 1 }}>
                 {info.estado === 'programada' ? cuenta(info.abre - now) : info.estado === 'abierta' ? cuenta(info.cierra - now) : info.estado === 'suspendida' ? '—' : hmArt(info.cierra)}
               </div>
-              <div className="mt-4">
-                <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full rounded-full bg-gradient-to-r from-vital via-ambar to-rosa transition-[width] duration-500" style={{ width: `${progresoVentana * 100}%` }} />
-                </div>
-                <div className="mt-1.5 flex justify-between font-mono text-xs text-slate-400">
-                  <span>{hmArt(info.abre)}</span>
-                  <span>{hmArt(info.cierra)}</span>
-                </div>
-              </div>
+              {porCerrar && (
+                <button className="btn btn-secundario no-print mt-3 !border-ambar/50 !py-1.5 !text-sm text-ambar" onClick={() => extender(5)}>
+                  <Plus className="h-4 w-4" /> 5 minutos más
+                </button>
+              )}
             </div>
-
-            <div className="tarjeta hud relative overflow-hidden p-5">
-              {latido > 0 && <div key={latido} className="destello pointer-events-none absolute inset-0 bg-vital/10" />}
-              <div className="relative flex items-center gap-5">
-                <div className="relative h-28 w-28 shrink-0">
-                  <Medidor valor={presentes} total={total} />
-                  <div className="absolute inset-0 grid place-items-center font-display text-xl font-semibold text-tinta">{pct(presentes, total)}%</div>
-                </div>
-                <div>
-                  <div className="etiqueta flex items-center gap-1.5">
-                    <Users className="h-3.5 w-3.5" /> Presentes
-                  </div>
-                  <div className="font-display font-bold text-tinta tabular-nums" style={{ fontSize: 'clamp(2.4rem, 4.4vw, 4.2rem)', lineHeight: 1 }}>
-                    <span key={presentes} className="entrada inline-block">
-                      {presentes}
-                    </span>
-                    <span className="text-2xl text-slate-300"> / {total}</span>
-                  </div>
-                </div>
+            <div className="relative p-5">
+              <div className="etiqueta flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" /> Presentes
               </div>
-              <EcgLine key={latido} latidos={5} duracion={2.2} color="#0e9f68" className="relative mt-3 h-8 w-full" />
+              <div className="mt-3 font-display font-bold text-tinta tabular-nums" style={{ fontSize: 'clamp(2.2rem, 4.2vw, 4.2rem)', lineHeight: 1 }}>
+                <span key={presentes} className="entrada inline-block">
+                  {presentes}
+                </span>
+                <span className="text-2xl text-slate-300"> / {total}</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-gradient-to-r from-vital to-cian transition-[width] duration-700" style={{ width: `${total ? Math.min(100, (presentes / total) * 100) : 0}%` }} />
+              </div>
             </div>
           </div>
 
@@ -458,49 +426,68 @@ export function Aula() {
       </main>
 
       <footer className="no-print flex flex-wrap items-center justify-between gap-3 border-t border-linea bg-white/80 px-5 py-2.5 backdrop-blur-xl lg:px-8">
-        <div className="hidden text-xs text-slate-400 md:block">
-          Atajos: <kbd className="rounded border border-linea bg-white px-1.5 font-mono">F</kbd> pantalla completa
-          {abierta && (
-            <>
-              {' '}
-              · <kbd className="rounded border border-linea bg-white px-1.5 font-mono">+</kbd> sumar 5 min
-            </>
-          )}
-          {' '}· El QR cambia cada {TOTP_PASO_S} s
-        </div>
+        {/* La acción que corresponde a este momento; lo demás, en «Más». */}
         <div className="flex flex-wrap items-center gap-2">
-          {api.demo && (
-            <>
-              <button className="btn btn-secundario !py-2 !text-sm" onClick={() => api.demo!.simularLlegadas(sesion.id, 25)} disabled={!abierta}>
-                <Zap className="h-4 w-4 text-ambar" /> Simular 25 llegadas
-              </button>
-              {abierta && url && (
-                <a className="btn btn-secundario !py-2 !text-sm" href={url} target="_blank" rel="noreferrer" title="En modo demo el registro funciona en otra pestaña de este mismo navegador">
-                  <ExternalLink className="h-4 w-4" /> Abrir como alumno
-                </a>
-              )}
-            </>
-          )}
-          <Link to={`/panel?tab=manual&s=${sesion.id}`} className="btn btn-secundario !py-2 !text-sm" title="Dar presente a alumnos sin celular u otra eventualidad">
-            <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
-          </Link>
           {abierta ? (
             <>
               <button className="btn btn-secundario !py-2 !text-sm" onClick={() => extender(5)} title="Atajo: tecla +">
-                <Plus className="h-4 w-4" /> 5 min
+                <Plus className="h-4 w-4" /> 5 minutos más
               </button>
               <button className="btn btn-secundario !py-2 !text-sm" onClick={cerrarAhora}>
                 <Square className="h-4 w-4 text-rosa" /> Cerrar registro
               </button>
             </>
-          ) : suspendidaAhora ? null : (
-            <button className="btn btn-secundario !py-2 !text-sm" onClick={() => abrirAhora(10)}>
-              <Unlock className="h-4 w-4 text-vital" /> Abrir ahora · 10 min
-            </button>
+          ) : (
+            !suspendidaAhora &&
+            vista.boton && (
+              <button className="btn btn-secundario !py-2 !text-sm" onClick={() => abrirAhora(10)}>
+                <Unlock className="h-4 w-4 text-vital" /> {vista.boton}
+              </button>
+            )
           )}
-          <Link to={`/poster/${sesion.id}`} className="btn btn-secundario !py-2 !text-sm">
-            <Printer className="h-4 w-4" /> Póster
-          </Link>
+          <span className="hidden text-xs text-slate-400 lg:inline">
+            Teclas: <kbd className="rounded border border-linea bg-white px-1.5 font-mono">F</kbd> pantalla completa
+            {abierta && (
+              <>
+                {' '}· <kbd className="rounded border border-linea bg-white px-1.5 font-mono">+</kbd> 5 min
+              </>
+            )}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <details ref={mas} className="relative">
+            <summary className="btn btn-secundario cursor-pointer list-none !py-2 !text-sm [&::-webkit-details-marker]:hidden">
+              <MoreHorizontal className="h-4 w-4" /> Más
+            </summary>
+            <div className="entrada absolute right-0 bottom-full z-30 mb-2 w-60 rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl">
+              <Link to={`/panel?tab=manual&s=${sesion.id}`} className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+                <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
+              </Link>
+              <Link to={`/poster/${sesion.id}`} className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+                <Printer className="h-4 w-4" /> Póster para imprimir
+              </Link>
+              {!sesion.ensayo && (
+                <Link to="/aula/ensayo" className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+                  <FlaskConical className="h-4 w-4 text-ambar" /> Hacer un ensayo
+                </Link>
+              )}
+              <Link to="/panel" className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+                <ArrowLeft className="h-4 w-4" /> Volver al panel
+              </Link>
+              {api.demo && (
+                <>
+                  <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-tinta hover:bg-slate-50 disabled:opacity-50" onClick={() => api.demo!.simularLlegadas(sesion.id, 25)} disabled={!abierta}>
+                    <Zap className="h-4 w-4 text-ambar" /> Simular 25 llegadas (demo)
+                  </button>
+                  {abierta && url && (
+                    <a className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50" href={url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-4 w-4" /> Abrir como alumno (demo)
+                    </a>
+                  )}
+                </>
+              )}
+            </div>
+          </details>
           <button className="btn btn-primario !py-2 !text-sm" onClick={pantallaCompleta} title="Atajo: tecla F">
             {pantalla ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
             {pantalla ? 'Salir de pantalla completa' : 'Pantalla completa'}

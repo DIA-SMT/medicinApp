@@ -1,5 +1,6 @@
-import { CalendarDays, House, LockKeyhole, ScanLine } from 'lucide-react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { CalendarDays, House, LockKeyhole, Projector, ScanLine } from 'lucide-react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
+import { esCatedra } from '../lib/hooks'
 import { Marca } from './Logo'
 
 // «Aula» (proyector) y «Panel» se agrupan en «Cátedra»: el panel tiene el acceso al proyector de la clase del día.
@@ -11,6 +12,8 @@ const enlaces = [
 
 export function Nav() {
   const { pathname } = useLocation()
+  // En una computadora con sesión de la cátedra, lo primero es proyectar el QR; el alumno nunca la tiene.
+  const catedra = esCatedra()
   return (
     <header className="no-print sticky top-0 z-40 border-b border-linea/80 bg-white/80 backdrop-blur-xl">
       <div className="mx-auto flex h-[4.25rem] max-w-7xl items-center justify-between gap-2 px-3 sm:h-[4.5rem] sm:gap-3 sm:px-6">
@@ -37,8 +40,17 @@ export function Nav() {
               Demo
             </span>
           )}
+          {catedra && !pathname.startsWith('/aula') && (
+            <Link to="/aula" className="btn btn-primario ml-1 !gap-1.5 !px-3 !py-2 !text-[0.8rem] sm:!px-4 sm:!text-sm" title="Abre el QR de la clase de hoy para el proyector">
+              <Projector className="h-4 w-4" />
+              Proyectar QR
+            </Link>
+          )}
           {/* Página de registro independiente (sin React): navegación completa */}
-          <a href="/p/" className="btn btn-primario ml-1 !gap-1.5 !px-3 !py-2 !text-[0.8rem] sm:!px-4 sm:!text-sm">
+          <a
+            href="/p/"
+            className={`btn ml-1 !gap-1.5 !px-3 !py-2 !text-[0.8rem] sm:!px-4 sm:!text-sm ${catedra ? 'btn-secundario !hidden lg:!inline-flex' : 'btn-primario'}`}
+          >
             <ScanLine className="h-4 w-4" />
             Dar presente
           </a>

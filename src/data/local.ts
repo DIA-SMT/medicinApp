@@ -1,7 +1,7 @@
 // Modo demostración: misma lógica de validación que el backend, pero persistida en localStorage.
 // Proyector y celular se sincronizan entre pestañas del mismo navegador (evento `storage`).
 import { GEO_MODO, PASE_TTL_S, SEDE, TOTP_PASO_S, TOTP_TOLERANCIA } from '../lib/config'
-import { CRONOGRAMA, sesionPorId } from '../lib/cronograma'
+import { CRONOGRAMA, SESION_ENSAYO, sesionPorId } from '../lib/cronograma'
 import { huellaDe, verificar } from '../lib/device'
 import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../lib/format'
 import { haversine } from '../lib/geo'
@@ -140,7 +140,7 @@ export function crearLocal(): PublicoApi & AdminApi {
 
     async ventanas() {
       const guardadas = leer<Record<string, Ventana>>(K.ventanas, {})
-      return Object.fromEntries(CRONOGRAMA.map((s) => [s.id, { ...ventanaDefault(), ...guardadas[s.id] }]))
+      return Object.fromEntries([...CRONOGRAMA, SESION_ENSAYO].map((s) => [s.id, { ...ventanaDefault(), ...guardadas[s.id] }]))
     },
 
     async abrirPase(sesionId, codigo) {

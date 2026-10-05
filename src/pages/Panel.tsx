@@ -189,22 +189,27 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           </div>
         )}
       </div>
-      <div className="flex flex-wrap gap-2 border-t border-linea bg-slate-50/70 px-5 py-3 sm:px-6">
-        <Link to={`/aula/${s.id}`} className="btn btn-primario">
-          <Projector className="h-4 w-4" /> Abrir proyector
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-linea bg-slate-50/70 px-5 py-4 sm:px-6">
+        <Link to={`/aula/${s.id}`} className="btn btn-primario !px-6 !py-3.5 text-base">
+          <Projector className="h-5 w-5" /> Proyectar el QR
         </Link>
-        <Link to={`/poster/${s.id}`} className="btn btn-secundario">
-          <Printer className="h-4 w-4" /> Póster para imprimir
-        </Link>
-        <button className="btn btn-secundario" onClick={() => onManual(s.id)}>
-          <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
-        </button>
-        <button className="btn btn-secundario" onClick={() => onVer(s.id)}>
-          <ListChecks className="h-4 w-4 text-cian" /> Lista de la clase
-        </button>
-        <Link to="/aula/ensayo" className="btn btn-secundario sm:ml-auto" title="Probar el circuito completo con celulares reales, sin que cuente para la regularidad">
-          <FlaskConical className="h-4 w-4 text-ambar" /> Hacer un ensayo
-        </Link>
+        <span className="max-w-xs text-sm leading-snug text-slate-500">
+          {esHoy ? 'En la PC del aula, conectada al proyector. El QR aparece solo a la hora.' : 'El día de la clase, en la PC del aula conectada al proyector.'}
+        </span>
+        <div className="flex flex-wrap gap-1 lg:ml-auto">
+          <button className="btn btn-fantasma" onClick={() => onManual(s.id)}>
+            <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
+          </button>
+          <button className="btn btn-fantasma" onClick={() => onVer(s.id)}>
+            <ListChecks className="h-4 w-4 text-cian" /> Lista
+          </button>
+          <Link to={`/poster/${s.id}`} className="btn btn-fantasma">
+            <Printer className="h-4 w-4" /> Póster
+          </Link>
+          <Link to="/aula/ensayo" className="btn btn-fantasma" title="Probar el circuito completo con celulares reales, sin que cuente para la regularidad">
+            <FlaskConical className="h-4 w-4 text-ambar" /> Ensayo
+          </Link>
+        </div>
       </div>
     </div>
   )
@@ -405,20 +410,17 @@ export function Panel() {
               </button>
             </>
           )}
-          <button className="btn btn-secundario" onClick={() => ir({ tab: 'manual' })}>
-            <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
-          </button>
-          <button className="btn btn-primario" onClick={exportarPlanilla} disabled={generando}>
+          <button className="btn btn-secundario" onClick={exportarPlanilla} disabled={generando}>
             <FileText className="h-4 w-4" /> {generando ? 'Generando PDF…' : 'Descargar planilla (PDF)'}
           </button>
           <button className="btn btn-secundario !px-3" onClick={exportarCsv} title="Los mismos datos en CSV, para Excel o como copia de los datos">
             <Download className="h-4 w-4" /> CSV
           </button>
-          <button className="btn btn-secundario" onClick={() => setVerMiClave((x) => !x)} title="Cambiar tu contraseña">
+          <button className="btn btn-fantasma" onClick={() => setVerMiClave((x) => !x)} title="Cambiar tu contraseña">
             <KeyRound className="h-4 w-4" /> Mi contraseña
           </button>
           {api.modo === 'supabase' && (
-            <button className="btn btn-secundario" onClick={() => api.salir().then(() => location.reload())} title="Cerrar la sesión de la cátedra en esta computadora">
+            <button className="btn btn-fantasma" onClick={() => api.salir().then(() => location.reload())} title="Cerrar la sesión de la cátedra en esta computadora">
               <LogOut className="h-4 w-4" /> Salir
             </button>
           )}
@@ -426,6 +428,9 @@ export function Panel() {
       </div>
 
       {verMiClave && <MiClave avisar={mostrar} onCerrar={() => setVerMiClave(false)} />}
+
+      <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
+
 
       {esAdmin && pendientes > 0 && tab !== 'cuentas' && (
         <button
@@ -454,8 +459,6 @@ export function Panel() {
       )}
 
       <RecordatorioExportar registros={registros} onExportar={exportarPlanilla} />
-
-      <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi etiqueta="Alumnos" valor={alumnos.length} icono={Users} nota="Planilla de regularidades" />

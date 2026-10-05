@@ -1,6 +1,6 @@
 // API pública sobre PostgREST con `fetch` puro: sin supabase-js, unos cientos de bytes.
 // Es lo único que descarga el celular del alumno además de la página de registro.
-import { CRONOGRAMA } from '../lib/cronograma'
+import { CRONOGRAMA, SESION_ENSAYO } from '../lib/cronograma'
 import { ventanaDefault, type Ventana } from '../lib/time'
 import type { Fallo, PublicoApi, ResultadoIdentificacion, ResultadoMarca, ResultadoMiAsistencia, ResultadoPase } from './types'
 
@@ -72,8 +72,9 @@ export const restPublico: PublicoApi = {
       /* sin red: se usan los horarios por defecto */
     }
     const porId = new Map(filas.map((f) => [f.id, f]))
+    // También la clase de ensayo: sin su horario, el proyector no mostraría el QR al empezarla.
     return Object.fromEntries(
-      CRONOGRAMA.map((s) => {
+      [...CRONOGRAMA, SESION_ENSAYO].map((s) => {
         const f = porId.get(s.id)
         const v: Ventana = f
           ? { apertura: hm(f.apertura)!, cierre: hm(f.cierre)!, manualDesde: ms(f.manual_desde), manualHasta: ms(f.manual_hasta), cerradaEn: ms(f.cerrada_en), suspendida: !!f.suspendida, motivoSuspension: f.motivo_suspension ?? null }

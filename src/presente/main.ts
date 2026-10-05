@@ -5,7 +5,7 @@ import { publico } from '../data/publico'
 import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
 import { GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
-import { firmar, huellaCorta, obtenerDispositivo, type Dispositivo } from '../lib/device'
+import { firmar, obtenerDispositivo, type Dispositivo } from '../lib/device'
 import { obtenerUbicacion } from '../lib/geo'
 import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, horaArt, hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { cryptoDisponible } from '../lib/totp'
@@ -16,7 +16,7 @@ const CLAVE_DNI = 'ciclo:alumno:dni'
 const CLAVE_NOMBRE = 'ciclo:alumno:nombre'
 // Misma clave que tutorial.ts: se lee acá para no descargar el tutorial a quien ya lo ocultó.
 const CLAVE_TUTORIAL_OCULTO = 'ciclo:tutorial:oculto'
-let tutorialMostrado = false
+const CLAVE_TUTORIAL_VISTO = 'ciclo:tutorial:visto'
 
 /** Tutorial con caso ficticio: módulo aparte, se descarga sólo si se va a mostrar. */
 const abrirTutorial = (opciones: { vence?: number; textoFinal: string; alCerrar: () => void }) =>
@@ -209,9 +209,9 @@ function cargando(sesion: Sesion | undefined, texto: string, saludo?: string) {
 }
 
 /** Cuánto le falta al alumno para el 70%, con la misma cuenta que la planilla de la cátedra. */
-function bloqueProgreso(p: Progreso) {
+function regularidad(p: Progreso) {
   const total = p.dictadas + p.restantes
-  if (!total) return ''
+  if (!total) return null
   const meta = Math.ceil((total * UMBRAL_REGULARIDAD) / 100)
   const faltas = p.dictadas - p.presentes
   const permitidas = total - meta
@@ -223,6 +223,27 @@ function bloqueProgreso(p: Progreso) {
         : faltas === permitidas
           ? ['text-ambar', 'Ojo: no podés faltar a ninguna clase más.']
           : ['text-vital', `Vas bien: podés faltar ${permitidas - faltas === 1 ? 'a 1 clase más' : `a ${permitidas - faltas} clases más`}.`]
+  return { meta, faltas, permitidas, tono, mensaje }
+}
+
+/** Una línea y una barra: lo que el alumno quiere saber al dar presente. */
+function progresoCorto(p: Progreso) {
+  const r = regularidad(p)
+  if (!r) return ''
+  return `
+    <div class="tarjeta mt-5 p-4 text-left">
+      <div class="flex items-baseline justify-between gap-3">
+        <span class="text-sm font-medium ${r.tono}">${r.mensaje}</span>
+        <span class="shrink-0 font-mono text-sm text-tinta tabular-nums"><b>${p.presentes}</b> de ${r.meta}</span>
+      </div>
+      <div class="barra mt-2 !h-2"><span class="crece" style="width:${Math.min(100, (p.presentes / r.meta) * 100)}%"></span></div>
+    </div>`
+}
+
+function bloqueProgreso(p: Progreso) {
+  const r = regularidad(p)
+  if (!r) return ''
+  const { meta, faltas, permitidas, tono, mensaje } = r
   return `
     <div class="tarjeta mt-4 p-4 text-left">
       <div class="flex items-baseline justify-between">
@@ -247,9 +268,7 @@ const chispas = () =>
     return `<span class="chispa" style="--x:${Math.round(Math.cos(a) * r)}px;--y:${Math.round(Math.sin(a) * r)}px;background:${c};animation-delay:${0.35 + (i % 4) * 0.04}s"></span>`
   }).join('')
 
-function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>, huella: string) {
-  const proxima = clasesVigentes(ventanas).find((s) => s.fecha > sesion.fecha)
-  const vProx = proxima ? (ventanas?.[proxima.id] ?? ventanaDefault()) : null
+function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>) {
   pintar(
     sesion,
     `<div class="text-center">
@@ -262,23 +281,12 @@ function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>, huella:
         </div>
       </div>
       <h1 class="mt-3 text-4xl font-bold text-tinta">${r.estado === 'REGISTRADO' ? '¡Presente!' : 'Ya estabas registrado'}</h1>
-      <p class="mt-1 text-slate-500">${esc(r.nombre)}</p>
-      <div class="mt-4 font-mono text-5xl font-semibold text-vital tabular-nums">${horaArt(r.marcadoEn)}</div>
-      ${sesion.ensayo ? '<p class="mt-4 rounded-2xl border border-ambar/30 bg-ambar-suave px-4 py-3 text-sm text-ambar">Fue un ensayo: no cuenta para tu asistencia y no quedó guardado en este celular.</p>' : r.progreso ? bloqueProgreso(r.progreso) : ''}
-      ${
-        proxima && vProx && !sesion.ensayo
-          ? `<div class="mt-4 flex items-center gap-3 rounded-2xl border border-linea bg-white/80 px-4 py-3 text-left">
-              <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cian-suave text-cian">${svg(I.calendario, 'h-5 w-5')}</div>
-              <div class="min-w-0 text-sm"><div class="font-semibold text-tinta">Próxima: ${diaSemana(proxima.fecha)} ${fechaCorta(proxima.fecha)}</div><div class="truncate text-slate-500">Registro de ${vProx.apertura} a ${vProx.cierre} · ${esc(proxima.temas[0].titulo)}</div></div>
-            </div>`
-          : ''
-      }
-      <div class="tarjeta mt-4 p-4 text-left font-mono text-xs">
-        <div class="flex justify-between border-b border-linea pb-2"><span class="text-slate-400">Comprobante</span><span class="text-tinta">${esc(r.comprobante)}</span></div>
-        <div class="flex items-center justify-between pt-2"><span class="text-slate-400">Celular vinculado</span><span class="flex items-center gap-1 text-vital">${svg(I.huella, 'h-3.5 w-3.5')} ${huellaCorta(huella)}</span></div>
-      </div>
+      <p class="mt-1 text-lg text-slate-600">${esc(r.nombre)}</p>
+      <div class="mt-3 font-mono text-5xl font-semibold text-vital tabular-nums">${horaArt(r.marcadoEn)}</div>
+      ${sesion.ensayo ? '<p class="mt-5 rounded-2xl border border-ambar/30 bg-ambar-suave px-4 py-3 text-sm text-ambar">Fue un ensayo: no cuenta para tu asistencia y no quedó guardado en este celular.</p>' : r.progreso ? progresoCorto(r.progreso) : ''}
+      <p class="mt-5 text-slate-600">Listo, podés cerrar esta pantalla. La próxima clase alcanza con escanear.</p>
       <a href="/p/?mia=1" class="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-rosa underline-offset-4 hover:underline">${svg(I.calendario, 'h-4 w-4')} Ver todas mis clases</a>
-      <p class="mt-3 text-xs text-slate-400">Listo, podés cerrar esta pantalla. La próxima clase alcanza con escanear.</p>
+      <p class="mt-4 font-mono text-[0.65rem] tracking-wider text-slate-400">Comprobante ${esc(r.comprobante)}</p>
     </div>`,
   )
   if (r.estado === 'REGISTRADO') navigator.vibrate?.([30, 50, 80])
@@ -644,7 +652,7 @@ async function registrar(sesion: Sesion, codigo: string) {
     } catch {
       /* ok */
     }
-    exito(sesion, r, dispositivo.huella)
+    exito(sesion, r)
   }
 
   const identificar = async (dni: string, automatico: boolean) => {
@@ -714,6 +722,7 @@ async function registrar(sesion: Sesion, codigo: string) {
         ${sesion.ensayo ? `<p class="mt-1 rounded-xl border border-ambar/30 bg-ambar-suave px-3 py-2 text-xs text-ambar">Ensayo: podés usar un DNI de prueba, de <b class="font-mono">${DNIS_ENSAYO[0]}</b> a <b class="font-mono">${DNIS_ENSAYO[DNIS_ENSAYO.length - 1]}</b>.</p>` : ''}
         <button id="ok" class="btn btn-primario mt-4 w-full !py-3.5 text-base" disabled>Continuar</button>
         ${barraPase(pase!.vence)}
+        <button type="button" id="como" class="mt-4 w-full text-center text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Primera vez? Mirá cómo es</button>
       </form>`,
     )
     alVencerPase = vencido
@@ -721,9 +730,11 @@ async function registrar(sesion: Sesion, codigo: string) {
     const ok = document.getElementById('ok') as HTMLButtonElement
     const caja = document.getElementById('caja')!
     const ayuda = document.getElementById('ayuda')!
-    // Primera vez en este celular: el paso a paso con el caso ficticio, encima del formulario.
-    const conTutorial = !aviso && !tutorialMostrado && leer(CLAVE_TUTORIAL_OCULTO) !== '1'
-    if (!conTutorial) input.focus()
+    input.focus()
+    // El paso a paso con el caso ficticio, sólo si lo piden: el formulario ya se explica solo.
+    document.getElementById('como')!.addEventListener('click', () =>
+      abrirTutorial({ vence: pase!.vence, textoFinal: 'Volver', alCerrar: () => document.getElementById('dni')?.focus() }),
+    )
     input.addEventListener('input', () => {
       const d = soloDigitos(input.value).slice(0, 9)
       input.value = conPuntos(d)
@@ -739,10 +750,6 @@ async function registrar(sesion: Sesion, codigo: string) {
       const dni = soloDigitos(input.value)
       if (dni.length >= 7) identificar(dni, false)
     })
-    if (conTutorial) {
-      tutorialMostrado = true
-      abrirTutorial({ vence: pase!.vence, textoFinal: 'Empezar', alCerrar: () => document.getElementById('dni')?.focus() })
-    }
   }
 
   const dniGuardado = leer(CLAVE_DNI)
@@ -841,8 +848,8 @@ function pedirCodigo(aviso?: string) {
     `<form id="f" class="tarjeta hud p-6">
       <div class="grid h-12 w-12 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.qr)}</div>
       <h1 class="mt-4 text-2xl font-semibold text-tinta">Dar presente</h1>
-      <p class="mt-1 text-sm text-slate-500">Escaneá el QR del aula. Si no lo lee, escribí el código de 6 dígitos que aparece debajo del QR.</p>
-      ${BarcodeDetector ? `<button type="button" id="cam" class="btn btn-primario mt-5 w-full !py-3.5 text-base">${svg(I.camara, 'h-5 w-5')} Escanear con la cámara</button><div class="my-4 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-linea"></span>o escribí el código<span class="h-px flex-1 bg-linea"></span></div>` : ''}
+      <p class="mt-1 text-slate-600">Escaneá el QR que se proyecta en el aula.</p>
+      ${BarcodeDetector ? `<button type="button" id="cam" class="btn btn-primario mt-5 w-full !py-3.5 text-base">${svg(I.camara, 'h-5 w-5')} Escanear con la cámara</button><div class="my-4 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-linea"></span>o el código de abajo del QR<span class="h-px flex-1 bg-linea"></span></div>` : '<p class="mt-4 text-sm text-slate-500">¿La cámara no lo lee? Escribí el código de 6 números que está debajo del QR.</p>'}
       <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="7" class="campo ${BarcodeDetector ? '' : 'mt-5'} text-center font-mono text-3xl tracking-[0.4em]" aria-label="Código de 6 dígitos" />
       ${aviso ? `<p class="mt-2 text-sm text-rosa-oscuro">${esc(aviso)}</p>` : ''}
       <button id="ok" class="btn ${BarcodeDetector ? 'btn-secundario' : 'btn-primario'} mt-4 w-full !py-3.5 text-base" disabled>Validar código</button>
@@ -895,9 +902,10 @@ if (s && c) {
   cambioCelular().catch(() => mostrarError(undefined, 'RED'))
 } else {
   pedirCodigo()
-  // /p/?tutorial=1 (desde la portada): el paso a paso sin estar en el aula.
-  if (params.has('tutorial')) {
-    tutorialMostrado = true
+  // /p/?tutorial=1 (desde la portada) o la primera visita de alguien que nunca dio presente: el paso a paso.
+  const primeraVez = !leer(CLAVE_DNI) && !leer(CLAVE_TUTORIAL_VISTO) && leer(CLAVE_TUTORIAL_OCULTO) !== '1'
+  if (params.has('tutorial') || primeraVez) {
+    guardar(CLAVE_TUTORIAL_VISTO, '1')
     abrirTutorial({ textoFinal: 'Entendido', alCerrar: () => history.replaceState(null, '', '/p/') })
   }
 }

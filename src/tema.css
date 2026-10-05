@@ -167,6 +167,16 @@ body {
     border-color: var(--color-rosa-200);
     box-shadow: 0 0 0 3px var(--color-rosa-suave);
   }
+  /* Acciones de segundo orden: no compiten con la principal. */
+  .btn-fantasma {
+    color: var(--color-slate-600);
+    padding: 0.45rem 0.75rem;
+    font-weight: 500;
+  }
+  .btn-fantasma:hover {
+    color: var(--color-tinta);
+    background: #fff;
+  }
 
   .campo {
     width: 100%;
