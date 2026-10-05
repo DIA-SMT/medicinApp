@@ -84,7 +84,7 @@ export function crearSupabaseAdmin(): AdminApi {
       if (error) {
         if (/confirm/i.test(error.message)) return { ok: false, error: 'La cuenta todavía no está confirmada. Pedile al administrador que la confirme.' }
         if (/fetch|network/i.test(error.message)) return { ok: false, error: 'Sin conexión. Revisá internet y probá de nuevo.' }
-        return { ok: false, error: 'Correo o contraseña incorrectos. Revisá mayúsculas y que no haya espacios.' }
+        return { ok: false, error: 'Correo o contraseña incorrectos. Revisá mayúsculas y que no haya espacios. Si todavía no te crearon la cuenta, pedísela a un administrador de la cátedra.' }
       }
       const { data: ok } = await sb.rpc('es_docente')
       if (ok !== true) {
