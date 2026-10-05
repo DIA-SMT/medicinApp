@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
 import { claveSugerida } from '../lib/clave'
+import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Registro, Rol, Solicitud } from '../data/types'
@@ -702,6 +703,7 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
   // Datos para pasarle a la persona después de crear la cuenta o cambiar la contraseña (se muestran una sola vez).
   const [credenciales, setCredenciales] = useState<{ email: string; clave: string; nueva: boolean } | null>(null)
   const [copiado, setCopiado] = useState(false)
+  const [copiaManual, setCopiaManual] = useState(false)
 
   const cargar = useCallback(() => {
     api.cuentas().then(setDatos).catch((e) => setError(String(e.message ?? e)))
@@ -731,6 +733,7 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
     if (await hacer(() => api.crearCuenta(e, rol, clave), `Cuenta creada: ${e}`)) {
       setCredenciales({ email: e, clave, nueva: true })
       setCopiado(false)
+      setCopiaManual(false)
       setEmail('')
       setClave(claveSugerida())
     }
@@ -742,18 +745,19 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
     if (await hacer(() => api.cambiarClave(c.email, nueva), `Contraseña cambiada: ${c.email}`)) {
       setCredenciales({ email: c.email, clave: nueva, nueva: false })
       setCopiado(false)
+      setCopiaManual(false)
     }
   }
 
+  const textoCredenciales = credenciales
+    ? `Acceso a CICLO (cátedra de Ginecología)\n${location.origin}/#/panel\nEmail: ${credenciales.email}\nContraseña: ${credenciales.clave}\nAl entrar, cambiala en «Mi contraseña».`
+    : ''
   const copiar = async () => {
     if (!credenciales) return
-    const texto = `Acceso a CICLO (cátedra de Ginecología)\n${location.origin}/#/panel\nEmail: ${credenciales.email}\nContraseña: ${credenciales.clave}\nAl entrar, cambiala en «Mi contraseña».`
-    try {
-      await navigator.clipboard.writeText(texto)
-      setCopiado(true)
-    } catch {
-      avisar('No se pudo copiar: seleccioná el texto a mano.')
-    }
+    const ok = await copiarTexto(textoCredenciales)
+    setCopiado(ok)
+    // Si el navegador no deja copiar, mostramos el mensaje armado y ya seleccionado: alcanza con Ctrl+C.
+    if (!ok) setCopiaManual(true)
   }
 
   if (error) return <p className="tarjeta mt-4 p-5 text-sm text-rosa-oscuro">No se pudieron cargar las cuentas: {error}</p>
@@ -793,6 +797,19 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
                 Listo, ocultar
               </button>
             </div>
+            {copiaManual && (
+              <div className="mt-3">
+                <p className="text-xs text-ambar">Este navegador no deja copiar solo: el mensaje ya está seleccionado, apretá Ctrl+C (o mantené apretado y «Copiar» en el celular).</p>
+                <textarea
+                  readOnly
+                  rows={5}
+                  className="campo mt-1 font-mono text-xs"
+                  value={textoCredenciales}
+                  autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </div>
+            )}
           </div>
         )}
 
