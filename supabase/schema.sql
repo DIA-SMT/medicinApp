@@ -75,6 +75,10 @@ create index if not exists idx_asistencias_sesion on public.asistencias (sesion_
 create table if not exists public.docentes (
   email text primary key
 );
+-- Roles: 'admin' además gestiona las cuentas de la cátedra desde el panel (pestaña «Cuentas»).
+alter table public.docentes add column if not exists rol text not null default 'docente' check (rol in ('admin', 'docente'));
+alter table public.docentes add column if not exists agregado_en timestamptz not null default now();
+alter table public.docentes add column if not exists agregado_por text;
 
 create table if not exists public.ajustes (
   id       boolean primary key default true check (id),
@@ -470,23 +474,128 @@ begin
   );
 end $$;
 
+-- ── Cuentas de la cátedra (sólo administradores) ─────────────────────────────
+
+create or replace function public.es_admin() returns boolean
+language sql stable security definer set search_path = public, auth as $$
+  select exists (
+    select 1 from docentes d join auth.users u on lower(u.email) = lower(d.email)
+    where u.id = auth.uid() and u.email_confirmed_at is not null and d.rol = 'admin'
+  )
+$$;
+
+/** ¿Queda algún administrador con cuenta activa además de p_email? (nunca se puede dejar la cátedra sin administrador) */
+create or replace function public._otro_admin_activo(p_email text) returns boolean
+language sql stable security definer set search_path = public, auth as $$
+  select exists (
+    select 1 from docentes d join auth.users u on lower(u.email) = lower(d.email)
+    where d.rol = 'admin' and u.email_confirmed_at is not null and lower(d.email) <> lower(p_email)
+  )
+$$;
+
+/** Corta si quien llama no es administrador; si lo es, devuelve su email. */
+create or replace function public._exigir_admin() returns text
+language plpgsql stable security definer set search_path = public, auth as $$
+begin
+  if not public.es_admin() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  return (select lower(email) from auth.users where id = auth.uid());
+end $$;
+
+/** Cuentas habilitadas (con su estado) y pedidos de acceso: quien creó su cuenta pero todavía no está habilitado. */
+create or replace function public.admin_cuentas() returns jsonb
+language plpgsql stable security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin();
+begin
+  return jsonb_build_object(
+    'yo', yo,
+    'cuentas', (select coalesce(jsonb_agg(jsonb_build_object(
+        'email', d.email, 'rol', d.rol, 'creada', u.id is not null, 'confirmada', u.email_confirmed_at is not null,
+        'ultimoIngreso', public._ms(u.last_sign_in_at), 'agregadoEn', public._ms(d.agregado_en), 'agregadoPor', d.agregado_por
+      ) order by d.rol, d.email), '[]'::jsonb)
+      from docentes d left join auth.users u on lower(u.email) = lower(d.email)),
+    'solicitudes', (select coalesce(jsonb_agg(jsonb_build_object(
+        'email', lower(u.email), 'creadaEn', public._ms(u.created_at), 'confirmada', u.email_confirmed_at is not null
+      ) order by u.created_at desc), '[]'::jsonb)
+      from auth.users u where not exists (select 1 from docentes d where lower(d.email) = lower(u.email)))
+  );
+end $$;
+
+/**
+ * Habilita un email (también por adelantado, antes de que cree la cuenta) con un rol.
+ * p_confirmar: confirma la cuenta sin el correo (sólo si el administrador sabe que la creó esa persona).
+ */
+create or replace function public.admin_habilitar(p_email text, p_rol text default 'docente', p_confirmar boolean default false) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin(); e text := lower(trim(p_email)); n int;
+begin
+  if e !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then raise exception 'EMAIL_INVALIDO'; end if;
+  if p_rol not in ('admin', 'docente') then raise exception 'ROL_INVALIDO'; end if;
+  if not exists (select 1 from docentes where lower(email) = e) then
+    insert into docentes (email, rol, agregado_por) values (e, p_rol, yo);
+    insert into auditoria (accion, cuenta, detalle) values ('cuenta_habilitada', e, p_rol);
+  end if;
+  if p_confirmar then
+    update auth.users set email_confirmed_at = now() where lower(email) = e and email_confirmed_at is null;
+    get diagnostics n = row_count;
+    if n > 0 then insert into auditoria (accion, cuenta) values ('cuenta_confirmada', e); end if;
+  end if;
+end $$;
+
+create or replace function public.admin_quitar(p_email text) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin(); e text := lower(trim(p_email));
+begin
+  if e = yo then raise exception 'NO_A_VOS_MISMO'; end if;
+  if (select rol from docentes where lower(email) = e) = 'admin' and not public._otro_admin_activo(e) then
+    raise exception 'ULTIMO_ADMIN';
+  end if;
+  delete from docentes where lower(email) = e;
+  if found then insert into auditoria (accion, cuenta) values ('cuenta_quitada', e); end if;
+end $$;
+
+create or replace function public.admin_rol(p_email text, p_rol text) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin(); e text := lower(trim(p_email));
+begin
+  if p_rol not in ('admin', 'docente') then raise exception 'ROL_INVALIDO'; end if;
+  if p_rol = 'docente' and (select rol from docentes where lower(email) = e) = 'admin' and not public._otro_admin_activo(e) then
+    raise exception 'ULTIMO_ADMIN';
+  end if;
+  update docentes set rol = p_rol where lower(email) = e and rol <> p_rol;
+  if found then insert into auditoria (accion, cuenta, detalle) values ('rol_cambiado', e, p_rol); end if;
+end $$;
+
+/** Rechaza un pedido de acceso: borra la cuenta creada (la persona puede volver a pedirla). */
+create or replace function public.admin_rechazar(p_email text) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin(); e text := lower(trim(p_email));
+begin
+  if exists (select 1 from docentes where lower(email) = e) then raise exception 'YA_HABILITADA'; end if;
+  delete from auth.users where lower(email) = e;
+  if found then insert into auditoria (accion, cuenta) values ('solicitud_rechazada', e); end if;
+end $$;
+
 -- Las funciones internas no se exponen por la API, y las de cátedra no las ejecuta el anónimo
 -- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
-  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text),
+  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text), public._exigir_admin(), public._otro_admin_activo(text),
   public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
   public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text), public._progreso(text, text)
 from public, anon, authenticated;
 revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
-  public.docente_terminar_ensayo(), public.docente_fallos(text, int)
+  public.docente_terminar_ensayo(), public.docente_fallos(text, int),
+  public.es_admin(), public.admin_cuentas(), public.admin_habilitar(text, text, boolean), public.admin_quitar(text),
+  public.admin_rol(text, text), public.admin_rechazar(text)
 from public, anon;
 
 grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text), public.mi_asistencia(text, text),
   public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
 to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
-  public.docente_terminar_ensayo(), public.docente_fallos(text, int) to authenticated;
+  public.docente_terminar_ensayo(), public.docente_fallos(text, int),
+  public.es_admin(), public.admin_cuentas(), public.admin_habilitar(text, text, boolean), public.admin_quitar(text),
+  public.admin_rol(text, text), public.admin_rechazar(text) to authenticated;
 
 -- ── Auditoría: quién cargó, quitó o cambió presentes y quién liberó celulares ──
 -- Los presentes por QR no se registran acá (ya tienen hora, método y huella en asistencias): sólo lo manual.
@@ -495,13 +604,20 @@ create table if not exists public.auditoria (
   id        bigint generated always as identity primary key,
   en        timestamptz not null default now(),
   por       text default (auth.jwt() ->> 'email'),
-  accion    text not null check (accion in ('presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado')),
+  accion    text not null,
   sesion_id text,
-  libreta   text not null,
+  libreta   text,
   detalle   text,
   previo    jsonb
 );
 create index if not exists idx_auditoria_en on public.auditoria (en desc);
+-- Cambios de cuentas de la cátedra: van con el email en «cuenta» (libreta vacía).
+alter table public.auditoria add column if not exists cuenta text;
+alter table public.auditoria alter column libreta drop not null;
+alter table public.auditoria drop constraint if exists auditoria_accion_check;
+alter table public.auditoria add constraint auditoria_accion_check check (accion in (
+  'presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado',
+  'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada'));
 alter table public.auditoria enable row level security;
 revoke all on public.auditoria from anon, authenticated;
 grant select on public.auditoria to authenticated;

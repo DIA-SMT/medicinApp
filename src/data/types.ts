@@ -84,7 +84,36 @@ export interface PedidoMarca {
   ubicacion: { lat: number; lng: number; precision: number } | null
 }
 
-export type AccionAuditoria = 'presente_manual' | 'presente_quitado' | 'presente_cambiado' | 'celular_liberado'
+export type AccionAuditoria =
+  | 'presente_manual'
+  | 'presente_quitado'
+  | 'presente_cambiado'
+  | 'celular_liberado'
+  | 'cuenta_habilitada'
+  | 'cuenta_confirmada'
+  | 'cuenta_quitada'
+  | 'rol_cambiado'
+  | 'solicitud_rechazada'
+
+export type Rol = 'admin' | 'docente'
+
+/** Cuenta habilitada para la cátedra (puede estar habilitada por adelantado, antes de crearse). */
+export interface Cuenta {
+  email: string
+  rol: Rol
+  creada: boolean
+  confirmada: boolean
+  ultimoIngreso: number | null
+  agregadoEn: number | null
+  agregadoPor: string | null
+}
+
+/** Alguien creó su cuenta y espera que un administrador la apruebe. */
+export interface Solicitud {
+  email: string
+  creadaEn: number
+  confirmada: boolean
+}
 
 /** Un cambio hecho por la cátedra (lo registra la base con un trigger: no se puede omitir desde la app). */
 export interface EventoAuditoria {
@@ -92,7 +121,9 @@ export interface EventoAuditoria {
   por: string | null
   accion: AccionAuditoria
   sesionId: string | null
-  libreta: string
+  libreta: string | null
+  /** En los cambios de cuentas: el email afectado. */
+  cuenta?: string | null
   detalle: string | null
 }
 
@@ -145,6 +176,13 @@ export interface AdminApi {
   fallos(sesionId: string): Promise<{ recientes: Record<string, number>; total: Record<string, number> }>
   /** Últimos cambios manuales: presentes cargados o quitados y celulares liberados. */
   auditoria(): Promise<EventoAuditoria[]>
+  /** Gestión de cuentas: sólo para administradores (la base lo exige en cada función). */
+  esAdmin(): Promise<boolean>
+  cuentas(): Promise<{ yo: string; cuentas: Cuenta[]; solicitudes: Solicitud[] }>
+  habilitar(email: string, rol: Rol, confirmar?: boolean): Promise<void>
+  quitarCuenta(email: string): Promise<void>
+  cambiarRol(email: string, rol: Rol): Promise<void>
+  rechazar(email: string): Promise<void>
 
   /** Herramientas sólo disponibles en modo demostración. */
   demo?: {

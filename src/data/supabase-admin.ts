@@ -2,7 +2,7 @@
 // Las reglas de asistencia viven en las funciones SQL de supabase/schema.sql.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { restPublico } from './rest'
-import type { AdminApi, Alumno, EventoAuditoria, Registro, ResumenSesion } from './types'
+import type { AdminApi, Alumno, Cuenta, EventoAuditoria, Registro, ResumenSesion, Solicitud } from './types'
 
 const iso = (n: number | null | undefined) => (n ? new Date(n).toISOString() : null)
 
@@ -33,9 +33,17 @@ export function crearSupabaseAdmin(): AdminApi {
     auth: { storage: almacenamiento, persistSession: true },
   })
 
+  // Errores de las funciones de cuentas, en castellano para el panel.
+  const MENSAJES: Record<string, string> = {
+    EMAIL_INVALIDO: 'Ese email no parece válido.',
+    NO_A_VOS_MISMO: 'No podés quitarte el acceso a vos mismo.',
+    ULTIMO_ADMIN: 'Tiene que quedar al menos un administrador con cuenta activa.',
+    YA_HABILITADA: 'Esa cuenta ya está habilitada: si querés, quitale el acceso.',
+    NO_AUTORIZADO: 'Sólo un administrador puede hacer esto.',
+  }
   async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await sb.rpc(fn, args)
-    if (error) throw new Error(error.message)
+    if (error) throw new Error(Object.entries(MENSAJES).find(([k]) => error.message.includes(k))?.[1] ?? error.message)
     return data as T
   }
 
@@ -74,7 +82,7 @@ export function crearSupabaseAdmin(): AdminApi {
       const { data: ok } = await sb.rpc('es_docente')
       if (ok !== true) {
         await sb.auth.signOut()
-        return { ok: false, error: 'Esta cuenta existe pero no está habilitada para la cátedra. Pedile al administrador que la habilite.' }
+        return { ok: false, error: 'Tu cuenta todavía no está aprobada. Pedile a un administrador de la cátedra que la apruebe desde el panel (pestaña «Cuentas»).' }
       }
       return { ok: true }
     },
@@ -176,9 +184,19 @@ export function crearSupabaseAdmin(): AdminApi {
     fallos: (sesionId) => rpc<{ recientes: Record<string, number>; total: Record<string, number> }>('docente_fallos', { p_sesion: sesionId }),
 
     async auditoria() {
-      const { data, error } = await sb.from('auditoria').select('en, por, accion, sesion_id, libreta, detalle').order('en', { ascending: false }).limit(300)
+      const { data, error } = await sb.from('auditoria').select('en, por, accion, sesion_id, libreta, cuenta, detalle').order('en', { ascending: false }).limit(300)
       if (error) throw new Error(error.message)
-      return (data ?? []).map((f): EventoAuditoria => ({ en: Date.parse(f.en), por: f.por, accion: f.accion, sesionId: f.sesion_id, libreta: f.libreta, detalle: f.detalle }))
+      return (data ?? []).map((f): EventoAuditoria => ({ en: Date.parse(f.en), por: f.por, accion: f.accion, sesionId: f.sesion_id, libreta: f.libreta, cuenta: f.cuenta, detalle: f.detalle }))
     },
+
+    async esAdmin() {
+      const { data } = await sb.rpc('es_admin')
+      return data === true
+    },
+    cuentas: () => rpc<{ yo: string; cuentas: Cuenta[]; solicitudes: Solicitud[] }>('admin_cuentas', {}),
+    habilitar: (email, rol, confirmar = false) => rpc<void>('admin_habilitar', { p_email: email, p_rol: rol, p_confirmar: confirmar }),
+    quitarCuenta: (email) => rpc<void>('admin_quitar', { p_email: email }),
+    cambiarRol: (email, rol) => rpc<void>('admin_rol', { p_email: email, p_rol: rol }),
+    rechazar: (email) => rpc<void>('admin_rechazar', { p_email: email }),
   }
 }

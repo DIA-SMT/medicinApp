@@ -7,7 +7,7 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, Progreso, PublicoApi, Registro } from './types'
+import type { AdminApi, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, Progreso, PublicoApi, Registro, Solicitud } from './types'
 
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
@@ -29,6 +29,8 @@ function auditar(e: Omit<EventoAuditoria, 'en' | 'por'>) {
 
 const K = {
   auditoria: 'ciclo:v1:auditoria',
+  cuentas: 'ciclo:v1:cuentas',
+  solicitudes: 'ciclo:v1:solicitudes',
   secretos: 'ciclo:v1:secretos',
   ventanas: 'ciclo:v1:ventanas',
   registros: 'ciclo:v1:registros',
@@ -296,6 +298,44 @@ export function crearLocal(): PublicoApi & AdminApi {
 
     async auditoria() {
       return leer<EventoAuditoria[]>(K.auditoria, [])
+    },
+
+    // Modo demo: cuentas de ejemplo guardadas en este navegador.
+    async esAdmin() {
+      return true
+    },
+    async cuentas() {
+      const cuentas = leer<Cuenta[]>(K.cuentas, [
+        { email: 'demo@catedra', rol: 'admin', creada: true, confirmada: true, ultimoIngreso: Date.now(), agregadoEn: null, agregadoPor: null },
+        { email: 'ayudante@ejemplo.edu.ar', rol: 'docente', creada: false, confirmada: false, ultimoIngreso: null, agregadoEn: Date.now(), agregadoPor: 'demo@catedra' },
+      ])
+      const solicitudes = leer<Solicitud[]>(K.solicitudes, [{ email: 'nueva.docente@ejemplo.edu.ar', creadaEn: Date.now() - 3600e3, confirmada: false }])
+      return { yo: 'demo@catedra', cuentas, solicitudes }
+    },
+    async habilitar(email, rol, confirmar = false) {
+      const { cuentas, solicitudes } = await this.cuentas()
+      const e = email.trim().toLowerCase()
+      const pedido = solicitudes.find((x) => x.email === e)
+      if (!cuentas.some((c) => c.email === e)) cuentas.push({ email: e, rol, creada: !!pedido, confirmada: !!pedido && (pedido.confirmada || confirmar), ultimoIngreso: null, agregadoEn: Date.now(), agregadoPor: 'demo@catedra' })
+      escribir(K.cuentas, cuentas)
+      escribir(K.solicitudes, solicitudes.filter((x) => x.email !== e))
+      auditar({ accion: 'cuenta_habilitada', sesionId: null, libreta: null, cuenta: e, detalle: rol })
+    },
+    async quitarCuenta(email) {
+      const { cuentas } = await this.cuentas()
+      if (email === 'demo@catedra') throw new Error('No podés quitarte el acceso a vos mismo.')
+      escribir(K.cuentas, cuentas.filter((c) => c.email !== email))
+      auditar({ accion: 'cuenta_quitada', sesionId: null, libreta: null, cuenta: email, detalle: null })
+    },
+    async cambiarRol(email, rol) {
+      const { cuentas } = await this.cuentas()
+      escribir(K.cuentas, cuentas.map((c) => (c.email === email ? { ...c, rol } : c)))
+      auditar({ accion: 'rol_cambiado', sesionId: null, libreta: null, cuenta: email, detalle: rol })
+    },
+    async rechazar(email) {
+      const { solicitudes } = await this.cuentas()
+      escribir(K.solicitudes, solicitudes.filter((x) => x.email !== email))
+      auditar({ accion: 'solicitud_rechazada', sesionId: null, libreta: null, cuenta: email, detalle: null })
     },
 
     demo: {

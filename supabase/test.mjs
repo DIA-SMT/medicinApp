@@ -23,7 +23,7 @@ await db.exec(`
   create or replace function auth.jwt() returns jsonb language sql stable as
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb) $$;
   create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
-  create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz);
+  create table auth.users (id uuid primary key, email text, email_confirmed_at timestamptz, created_at timestamptz default now(), last_sign_in_at timestamptz);
 `)
 await db.exec(fs.readFileSync(`${ROOT}/supabase/schema.sql`, 'utf8'))
 await db.exec(fs.readFileSync(`${ROOT}/supabase/seed.sql`, 'utf8'))
@@ -265,6 +265,46 @@ const borrados = (await one('select docente_terminar_ensayo() n')).n
 await db.exec(`select set_config('request.jwt.claims', '', false)`)
 ok(borrados === 3 && (await one(`select count(*)::int n from asistencias where sesion_id = 'ensayo'`)).n === 0, 'terminar ensayo borra sus presentes', borrados)
 ok((await one(`select count(*)::int n from fallos where sesion_id = 'ensayo'`)).n === 0 && (await one(`select manual_hasta from sesiones where id = 'ensayo'`)).manual_hasta === null, 'terminar ensayo borra los fallos y cierra la clase')
+
+// ── Cuentas de la cátedra (administradores) ──
+const comoCatedra = () => db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
+const error = async (sql, params) => {
+  try {
+    await one(sql, params)
+    return null
+  } catch (e) {
+    return e.message
+  }
+}
+await comoCatedra()
+ok((await error('select admin_cuentas()'))?.includes('NO_AUTORIZADO'), 'un docente sin rol de administrador no ve las cuentas')
+await db.exec(`update docentes set rol = 'admin' where email = 'catedra@ejemplo.edu.ar'`)
+await db.exec(`insert into auth.users (id, email, email_confirmed_at) values ('00000000-0000-0000-0000-00000000000c', 'Nueva@Ejemplo.edu.ar', null), ('00000000-0000-0000-0000-00000000000d', 'intruso@ejemplo.com', now())`)
+let cuentas = (await one('select admin_cuentas() c')).c
+ok(cuentas.yo === 'catedra@ejemplo.edu.ar' && cuentas.solicitudes.some((x) => x.email === 'nueva@ejemplo.edu.ar' && !x.confirmada), 'el administrador ve los pedidos de acceso', cuentas.solicitudes.length)
+ok((await error(`select admin_habilitar('no-es-un-email')`))?.includes('EMAIL_INVALIDO'), 'habilitar valida el email')
+await one(`select admin_habilitar('Nueva@Ejemplo.edu.ar', 'docente', true)`)
+cuentas = (await one('select admin_cuentas() c')).c
+const nueva = cuentas.cuentas.find((x) => x.email === 'nueva@ejemplo.edu.ar')
+ok(nueva && nueva.rol === 'docente' && nueva.confirmada && !cuentas.solicitudes.some((x) => x.email === 'nueva@ejemplo.edu.ar'), 'aprobar y confirmar un pedido', nueva)
+await one(`select admin_habilitar('futura@ejemplo.edu.ar', 'admin')`)
+ok((await one('select admin_cuentas() c')).c.cuentas.some((x) => x.email === 'futura@ejemplo.edu.ar' && x.rol === 'admin' && !x.creada), 'habilitar un email por adelantado (todavía sin cuenta)')
+ok((await error(`select admin_quitar('catedra@ejemplo.edu.ar')`))?.includes('NO_A_VOS_MISMO'), 'nadie se quita el acceso a sí mismo')
+ok((await error(`select admin_rol('catedra@ejemplo.edu.ar', 'docente')`))?.includes('ULTIMO_ADMIN'), 'no se puede dejar la cátedra sin administrador activo (el adelantado no cuenta)')
+await one(`select admin_rol('nueva@ejemplo.edu.ar', 'admin')`)
+await one(`select admin_rol('catedra@ejemplo.edu.ar', 'docente')`)
+ok((await one(`select rol from docentes where email = 'catedra@ejemplo.edu.ar'`)).rol === 'docente', 'con otro administrador activo, uno puede dejar de serlo')
+ok((await error('select admin_cuentas()'))?.includes('NO_AUTORIZADO'), 'al dejar de ser administrador ya no gestiona cuentas')
+await db.exec(`update docentes set rol = 'admin' where email = 'catedra@ejemplo.edu.ar'`)
+ok((await error(`select admin_rechazar('nueva@ejemplo.edu.ar')`))?.includes('YA_HABILITADA'), 'rechazar no borra una cuenta habilitada')
+await one(`select admin_rechazar('intruso@ejemplo.com')`)
+ok((await one(`select count(*)::int n from auth.users where email = 'intruso@ejemplo.com'`)).n === 0, 'rechazar un pedido borra esa cuenta')
+await one(`select admin_quitar('futura@ejemplo.edu.ar')`)
+ok(!(await one('select admin_cuentas() c')).c.cuentas.some((x) => x.email === 'futura@ejemplo.edu.ar'), 'quitar el acceso a una cuenta')
+const audCuentas = (await q(`select accion from auditoria where cuenta is not null order by id`)).map((x) => x.accion)
+ok(['cuenta_habilitada', 'cuenta_confirmada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_quitada'].every((a) => audCuentas.includes(a)), 'cada cambio de cuentas queda en el historial', audCuentas)
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
+ok((await error('select admin_cuentas()'))?.includes('NO_AUTORIZADO'), 'sin sesión no se ve nada de las cuentas')
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)

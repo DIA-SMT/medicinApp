@@ -133,7 +133,7 @@ PARA LA CÁTEDRA (cuenta habilitada, entra en medicinapp.vercel.app/#/panel)
 - Copia de seguridad: la base no guarda copias automáticas, así que al terminar cada clase conviene «Descargar planilla (PDF)» (o el CSV, que sirve para volver a cargar los datos). Cuando una clase cierra, el panel muestra un aviso con «Descargar planilla» (y el proyector, un botón para ir a descargarla).
 - Historial: Panel → «Historial» muestra quién cargó o quitó presentes a mano y quién liberó celulares.
 - En la PC del aula conviene ingresar sin marcar «Recordarme en esta computadora»: la sesión se cierra sola al cerrar el navegador.
-- Cuentas de la cátedra: cada docente o ayudante la crea en medicinapp.vercel.app/#/panel → «Crear cuenta de la cátedra», con su email y una contraseña que elige (al menos 8 caracteres). Después le avisa al administrador de la app, que habilita ese email; recién ahí puede entrar. Si olvidó la contraseña, se la renueva el administrador.
+- Cuentas de la cátedra: cada docente o ayudante crea la suya en medicinapp.vercel.app/#/panel → «Crear cuenta de la cátedra», con su email y una contraseña que elige (al menos 8 caracteres), y confirma el correo que le llega. Hay dos roles: «Docente» (proyector, presente manual, planilla) y «Administrador» (además gestiona las cuentas). Un administrador aprueba el pedido en Panel → pestaña «Cuentas» (también puede habilitar un email por adelantado, hacer o quitar administradores y quitar accesos). Si el correo de confirmación no llega, el administrador puede «Aprobar y confirmar», sólo si sabe que esa persona creó la cuenta. Si alguien olvidó la contraseña, lo resuelve el administrador de la app.
 
 CRONOGRAMA DE TEÓRICAS (miércoles y viernes 8:00)
 ${cronograma}

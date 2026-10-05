@@ -1,10 +1,10 @@
-import { Activity, CalendarCheck, CircleCheck, FlaskConical, TriangleAlert, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
-import type { AccionAuditoria, Alumno, DispositivoVinculado, EventoAuditoria, Registro } from '../data/types'
+import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Registro, Rol, Solicitud } from '../data/types'
 import { MOTIVOS_MANUALES, UMBRAL_REGULARIDAD } from '../lib/config'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
@@ -17,7 +17,7 @@ type Avisar = (texto: string, deshacer?: () => Promise<unknown> | void) => void
 
 type Condicion = 'Regular' | 'En riesgo' | 'Libre'
 const COLOR_COND: Record<Condicion, string> = { Regular: '#0e9f68', 'En riesgo': '#c27c03', Libre: '#e0246f' }
-type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos' | 'historial'
+type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos' | 'historial' | 'cuentas'
 
 interface Fila {
   a: Alumno
@@ -224,6 +224,19 @@ export function Panel() {
   const [orden, setOrden] = useState<'planilla' | 'apellido' | 'asistencia'>('planilla')
   const [umbral, setUmbral] = useState(leerUmbral)
   const [busquedaDisp, setBusquedaDisp] = useState('')
+  // Administradores: pestaña «Cuentas» y aviso de pedidos de acceso pendientes.
+  const [esAdmin, setEsAdmin] = useState(false)
+  const [pendientes, setPendientes] = useState(0)
+  const revisarCuentas = useCallback(() => {
+    api
+      .esAdmin()
+      .then(async (si) => {
+        setEsAdmin(si)
+        if (si) setPendientes((await api.cuentas()).solicitudes.length)
+      })
+      .catch(() => {})
+  }, [api])
+  useEffect(revisarCuentas, [revisarCuentas])
   const [, setExportes] = useState(0)
   const [generando, setGenerando] = useState(false)
 
@@ -384,6 +397,19 @@ export function Panel() {
         </div>
       </div>
 
+      {esAdmin && pendientes > 0 && tab !== 'cuentas' && (
+        <button
+          onClick={() => ir({ tab: 'cuentas' })}
+          className="entrada mt-8 flex w-full flex-wrap items-center gap-3 rounded-2xl border border-rosa/30 bg-rosa-suave p-4 text-left transition hover:border-rosa/60"
+        >
+          <UserCheck className="h-5 w-5 shrink-0 text-rosa" />
+          <span className="flex-1 font-medium text-tinta">
+            {pendientes === 1 ? 'Hay 1 pedido de cuenta de la cátedra' : `Hay ${pendientes} pedidos de cuenta de la cátedra`} esperando aprobación
+          </span>
+          <span className="text-sm font-semibold text-rosa">Revisar →</span>
+        </button>
+      )}
+
       <RecordatorioExportar registros={registros} onExportar={exportarPlanilla} />
 
       <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
@@ -432,6 +458,7 @@ export function Panel() {
             ['clase', 'Por clase', CalendarCheck],
             ['dispositivos', `Dispositivos (${dispositivos.length})`, Smartphone],
             ['historial', 'Historial', History],
+            ...(esAdmin ? ([['cuentas', `Cuentas${pendientes ? ` (${pendientes} pedido${pendientes === 1 ? '' : 's'})` : ''}`, ShieldCheck]] as const) : []),
           ] as const
         ).map(([k, t, I]) => (
           <button key={k} onClick={() => ir({ tab: k })} className={`btn ${tab === k ? 'btn-primario' : 'btn-secundario'} !py-2`}>
@@ -590,8 +617,191 @@ export function Panel() {
         </div>
       )}
       {tab === 'historial' && <Historial alumnos={alumnos} cambios={registros.length + dispositivos.length} />}
+      {tab === 'cuentas' && esAdmin && <Cuentas avisar={mostrar} alCambiar={revisarCuentas} />}
       {aviso}
     </main>
+  )
+}
+
+const hace = (ms: number | null) => {
+  if (!ms) return ''
+  const min = Math.round((Date.now() - ms) / 60e3)
+  if (min < 60) return `hace ${Math.max(1, min)} min`
+  if (min < 48 * 60) return `hace ${Math.round(min / 60)} h`
+  return `el ${fechaCorta(hoyIso(ms))}`
+}
+
+/** Administradores: aprobar pedidos de acceso, habilitar emails por adelantado, roles y quitar acceso. */
+function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void }) {
+  const api = useAdmin()
+  const [datos, setDatos] = useState<{ yo: string; cuentas: Cuenta[]; solicitudes: Solicitud[] } | null>(null)
+  const [error, setError] = useState('')
+  const [email, setEmail] = useState('')
+  const [rol, setRol] = useState<Rol>('docente')
+  const [ocupado, setOcupado] = useState(false)
+
+  const cargar = useCallback(() => {
+    api.cuentas().then(setDatos).catch((e) => setError(String(e.message ?? e)))
+  }, [api])
+  useEffect(cargar, [cargar])
+
+  /** Ejecuta una acción de cuentas, recarga y avisa (los errores de la base llegan ya en castellano). */
+  const hacer = async (accion: () => Promise<void>, ok: string) => {
+    setOcupado(true)
+    try {
+      await accion()
+      avisar(ok)
+      cargar()
+      alCambiar()
+    } catch (e) {
+      avisar(String((e as Error).message ?? e))
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  if (error) return <p className="tarjeta mt-4 p-5 text-sm text-rosa-oscuro">No se pudieron cargar las cuentas: {error}</p>
+  if (!datos) return <p className="tarjeta mt-4 p-5 font-mono text-sm text-slate-400">Cargando cuentas…</p>
+
+  const estado = (c: Cuenta) =>
+    !c.creada ? ['Habilitada · todavía no creó la cuenta', 'bg-ambar-suave text-ambar'] : !c.confirmada ? ['Falta confirmar el email', 'bg-ambar-suave text-ambar'] : ['Activa', 'bg-vital-suave text-vital']
+
+  return (
+    <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_22rem]">
+      <div className="space-y-5">
+        <div className="tarjeta hud p-5">
+          <div className="etiqueta flex items-center gap-1.5">
+            <UserCheck className="h-3.5 w-3.5" /> Pedidos de acceso ({datos.solicitudes.length})
+          </div>
+          <p className="mt-1 text-sm text-slate-500">Personas que crearon su cuenta en «Crear cuenta de la cátedra» y esperan aprobación. Aprobá sólo a quien conocés.</p>
+          {datos.solicitudes.length === 0 && <p className="py-4 text-center text-sm text-slate-400">No hay pedidos pendientes.</p>}
+          <ul className="mt-3 divide-y divide-slate-100">
+            {datos.solicitudes.map((x) => (
+              <li key={x.email} className="flex flex-wrap items-center gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-tinta">{x.email}</div>
+                  <div className="text-xs text-slate-500">
+                    Creó la cuenta {hace(x.creadaEn)} · {x.confirmada ? 'email confirmado' : 'todavía no confirmó el email'}
+                  </div>
+                </div>
+                {x.confirmada ? (
+                  <button className="btn btn-primario !py-1.5 !text-xs" disabled={ocupado} onClick={() => hacer(() => api.habilitar(x.email, 'docente'), `Cuenta aprobada: ${x.email}`)}>
+                    Aprobar
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primario !py-1.5 !text-xs"
+                    disabled={ocupado}
+                    onClick={() =>
+                      confirm(`¿Aprobar y confirmar ${x.email} sin el correo de confirmación?\n\nHacelo sólo si sabés que esa persona creó la cuenta: el correo es lo que prueba que el email es suyo.`) &&
+                      hacer(() => api.habilitar(x.email, 'docente', true), `Cuenta aprobada y confirmada: ${x.email}`)
+                    }
+                  >
+                    Aprobar y confirmar
+                  </button>
+                )}
+                <button
+                  className="btn btn-secundario !py-1.5 !text-xs"
+                  disabled={ocupado}
+                  onClick={() => confirm(`¿Rechazar el pedido de ${x.email}? Se borra esa cuenta (puede volver a pedirla).`) && hacer(() => api.rechazar(x.email), `Pedido rechazado: ${x.email}`)}
+                >
+                  <UserX className="h-3.5 w-3.5" /> Rechazar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="tarjeta hud p-5">
+          <div className="etiqueta flex items-center gap-1.5">
+            <ShieldCheck className="h-3.5 w-3.5" /> Cuentas de la cátedra ({datos.cuentas.length})
+          </div>
+          <ul className="mt-3 divide-y divide-slate-100">
+            {datos.cuentas.map((c) => {
+              const [texto, clases] = estado(c)
+              const soyYo = c.email === datos.yo
+              return (
+                <li key={c.email} className="flex flex-wrap items-center gap-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate font-medium text-tinta">{c.email}</span>
+                      {soyYo && <span className="text-xs text-slate-400">(vos)</span>}
+                      <span className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${c.rol === 'admin' ? 'bg-rosa-suave text-rosa-oscuro' : 'bg-slate-100 text-slate-600'}`}>
+                        {c.rol === 'admin' ? 'Administrador' : 'Docente'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span className={`rounded-full px-2 py-0.5 ${clases}`}>{texto}</span>
+                      {c.ultimoIngreso && <span>Último ingreso {hace(c.ultimoIngreso)}</span>}
+                    </div>
+                  </div>
+                  {c.creada && !c.confirmada && (
+                    <button
+                      className="btn btn-secundario !py-1.5 !text-xs"
+                      disabled={ocupado}
+                      onClick={() =>
+                        confirm(`¿Confirmar ${c.email} sin el correo? Hacelo sólo si sabés que esa persona creó la cuenta.`) &&
+                        hacer(() => api.habilitar(c.email, c.rol, true), `Cuenta confirmada: ${c.email}`)
+                      }
+                    >
+                      Confirmar
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-secundario !py-1.5 !text-xs"
+                    disabled={ocupado}
+                    onClick={() => hacer(() => api.cambiarRol(c.email, c.rol === 'admin' ? 'docente' : 'admin'), c.rol === 'admin' ? `${c.email} ya no es administrador` : `${c.email} ahora es administrador`)}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" /> {c.rol === 'admin' ? 'Quitar administrador' : 'Hacer administrador'}
+                  </button>
+                  {!soyYo && (
+                    <button
+                      className="btn btn-secundario !py-1.5 !text-xs hover:!text-rosa-oscuro"
+                      disabled={ocupado}
+                      onClick={() => confirm(`¿Quitarle el acceso a ${c.email}? Ya no va a poder entrar al panel ni al proyector.`) && hacer(() => api.quitarCuenta(c.email), `Acceso quitado: ${c.email}`)}
+                    >
+                      Quitar acceso
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      </div>
+
+      <form
+        className="tarjeta hud space-y-3 p-5 lg:sticky lg:top-24 lg:self-start"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const v = email.trim().toLowerCase()
+          if (v) hacer(() => api.habilitar(v, rol), `Habilitado: ${v}`).then(() => setEmail(''))
+        }}
+      >
+        <div className="etiqueta">Habilitar un email</div>
+        <p className="text-sm text-slate-500">
+          Para sumar a alguien sin esperar el pedido: después esa persona entra a <b className="text-tinta">{location.host}/#/panel</b>, toca «Crear cuenta de la
+          cátedra» con este mismo email y, al confirmar el correo, ya tiene acceso.
+        </p>
+        <input className="campo" type="email" placeholder="email@ejemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <div className="flex gap-2">
+          {(['docente', 'admin'] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRol(r)}
+              className={`flex-1 rounded-xl border px-3 py-2 text-sm transition ${rol === r ? 'border-rosa bg-rosa-suave font-semibold text-rosa-oscuro' : 'border-linea bg-white text-slate-600'}`}
+            >
+              {r === 'admin' ? 'Administrador' : 'Docente'}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400">Docente: proyector, presente manual y planilla. Administrador: además gestiona estas cuentas.</p>
+        <button className="btn btn-primario w-full" disabled={ocupado || !email.trim()}>
+          <UserCheck className="h-4 w-4" /> Habilitar
+        </button>
+      </form>
+    </div>
   )
 }
 
@@ -600,6 +810,11 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   presente_quitado: { texto: 'Presente quitado', color: '#e0246f' },
   presente_cambiado: { texto: 'Presente modificado', color: '#c27c03' },
   celular_liberado: { texto: 'Celular liberado', color: '#b04aa6' },
+  cuenta_habilitada: { texto: 'Cuenta habilitada', color: '#0e9f68' },
+  cuenta_confirmada: { texto: 'Cuenta confirmada', color: '#0e9f68' },
+  cuenta_quitada: { texto: 'Acceso quitado', color: '#e0246f' },
+  rol_cambiado: { texto: 'Rol cambiado', color: '#c27c03' },
+  solicitud_rechazada: { texto: 'Pedido rechazado', color: '#e0246f' },
 }
 
 /** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */
@@ -616,8 +831,8 @@ function Historial({ alumnos, cambios }: { alumnos: Alumno[]; cambios: number })
     <div className="tarjeta hud mt-4 p-5">
       <p className="flex items-start gap-2 text-sm text-slate-600">
         <History className="mt-0.5 h-4 w-4 shrink-0 text-cian" />
-        Cada presente cargado o quitado a mano y cada celular liberado queda registrado con quién lo hizo y cuándo. Los presentes por QR no aparecen
-        acá: se ven en «Por clase».
+        Cada presente cargado o quitado a mano, cada celular liberado y cada cambio de cuentas de la cátedra queda registrado con quién lo hizo y
+        cuándo. Los presentes por QR no aparecen acá: se ven en «Por clase».
       </p>
       {error && <p className="mt-4 text-sm text-rosa-oscuro">No se pudo cargar el historial: {error}</p>}
       {!eventos && !error && <p className="mt-4 font-mono text-sm text-slate-400">Cargando…</p>}
@@ -635,9 +850,9 @@ function Historial({ alumnos, cambios }: { alumnos: Alumno[]; cambios: number })
                   {a.texto}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="text-tinta">{nombre.get(e.libreta) ?? e.libreta}</span>
+                  <span className="text-tinta">{e.cuenta ?? (e.libreta ? (nombre.get(e.libreta) ?? e.libreta) : '')}</span>
                   {e.sesionId && <span className="text-slate-500"> · clase del {fechaCorta(e.sesionId)}</span>}
-                  {e.detalle && <span className="block text-xs text-slate-400">{e.detalle}</span>}
+                  {e.detalle && <span className="block text-xs text-slate-400">{e.cuenta ? (e.detalle === 'admin' ? 'como administrador' : e.detalle === 'docente' ? 'como docente' : e.detalle) : e.detalle}</span>}
                 </span>
                 <span className="text-xs text-slate-400">{e.por ?? 'sistema'}</span>
               </li>

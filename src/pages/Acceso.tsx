@@ -115,16 +115,16 @@ export function Acceso({ children }: { children: React.ReactNode }) {
             <li className="flex gap-3">
               <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rosa text-xs font-bold text-white">1</span>
               <span>
-                <b className="text-tinta">Avisale al administrador de la app</b> para que habilite tu email. Por seguridad, ninguna cuenta entra al panel hasta que la habilita.
+                <b className="text-tinta">Avisale a un administrador de la cátedra</b>: tu pedido le aparece en el panel y lo aprueba con un clic. Si ya habilitaron tu email por adelantado, no hace falta.
               </span>
             </li>
             <li className="flex gap-3">
               <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rosa text-xs font-bold text-white">2</span>
-              <span>Si te llega un correo para confirmar la cuenta, tocá el enlace. Si no llega, no pasa nada: el administrador la confirma.</span>
+              <span>Tocá el enlace del correo de confirmación que te llega. Si no llega, el administrador puede confirmarla desde el panel.</span>
             </li>
             <li className="flex gap-3">
               <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-rosa text-xs font-bold text-white">3</span>
-              <span>Cuando te confirme, ingresá acá con tu email y tu contraseña.</span>
+              <span>Con la cuenta aprobada y confirmada, ingresá acá con tu email y tu contraseña.</span>
             </li>
           </ol>
           <button className="btn btn-primario mt-6 w-full !py-3" onClick={() => cambiarModo('ingresar')}>
@@ -141,7 +141,7 @@ export function Acceso({ children }: { children: React.ReactNode }) {
         <p className="mt-4 text-sm text-slate-500">
           {modo === 'ingresar'
             ? 'Para abrir el proyector, imprimir el póster y ver la planilla.'
-            : 'Elegí tu propia contraseña. Vas a poder entrar cuando el administrador habilite tu email.'}
+            : 'Elegí tu propia contraseña. Vas a poder entrar cuando un administrador de la cátedra apruebe tu cuenta.'}
         </p>
 
         <label className="etiqueta mt-6 block" htmlFor="email">
