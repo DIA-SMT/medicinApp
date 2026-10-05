@@ -1,22 +1,23 @@
-import { Check, Printer, Projector, Stethoscope } from 'lucide-react'
+import { CalendarOff, Check, Printer, Projector, Stethoscope } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { AREAS, type Sesion } from '../lib/cronograma'
 import { esCatedra, useNow } from '../lib/hooks'
-import { diaSemana, estadoClase, fechaCorta } from '../lib/time'
+import { diaSemana, estadoClase, fechaCorta, type Ventana } from '../lib/time'
 import { Agendar } from './Agendar'
 import { ChipArea, ChipParcial, IconoArea } from './ui'
 
 const ETIQUETA = { dictada: 'Dictada', hoy: 'Hoy', proxima: 'Próxima', futura: '' } as const
 
-export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?: boolean }) {
+export function TarjetaSesion({ sesion, compacta, ventanas }: { sesion: Sesion; compacta?: boolean; ventanas?: Record<string, Ventana> | null }) {
   const now = useNow(60_000)
-  const e = estadoClase(sesion, now)
+  const e = estadoClase(sesion, now, ventanas)
   const color = AREAS[sesion.temas[0].area].color
-  const destacada = e === 'hoy' || e === 'proxima'
+  const suspension = ventanas?.[sesion.id]?.suspendida ? (ventanas[sesion.id].motivoSuspension ?? '') : null
+  const destacada = suspension === null && (e === 'hoy' || e === 'proxima')
 
   return (
     <article
-      className={`tarjeta group relative h-full p-5 transition duration-300 hover:-translate-y-0.5 ${e === 'dictada' ? 'opacity-70 hover:opacity-100' : ''} ${destacada ? 'hud' : ''}`}
+      className={`tarjeta group relative h-full p-5 transition duration-300 hover:-translate-y-0.5 ${e === 'dictada' || suspension !== null ? 'opacity-70 hover:opacity-100' : ''} ${destacada ? 'hud' : ''}`}
       style={destacada ? { boxShadow: `0 0 0 1px ${color}55, 0 18px 40px -24px ${color}` } : undefined}
     >
       <div className="absolute inset-x-0 top-0 h-[3px] rounded-t-[1.25rem]" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
@@ -27,7 +28,11 @@ export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?:
           </div>
           <div className="font-display text-2xl font-semibold text-tinta tabular-nums">{fechaCorta(sesion.fecha)}</div>
         </div>
-        {e === 'dictada' ? (
+        {suspension !== null ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-ambar/40 bg-ambar-suave px-2.5 py-1 font-mono text-[0.6rem] font-medium tracking-[0.18em] text-ambar uppercase">
+            <CalendarOff className="h-3 w-3" /> Suspendida
+          </span>
+        ) : e === 'dictada' ? (
           <span className="grid h-7 w-7 place-items-center rounded-full bg-vital-suave text-vital">
             <Check className="h-4 w-4" />
           </span>
@@ -38,7 +43,13 @@ export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?:
         ) : null}
       </div>
 
-      <div className="mt-4 space-y-3">
+      {suspension !== null && (
+        <p className="mt-3 rounded-xl bg-ambar-suave px-3 py-2 text-sm text-slate-700">
+          {suspension ? `${suspension}. ` : ''}No se toma asistencia y no cuenta para la regularidad.
+        </p>
+      )}
+
+      <div className={`mt-4 space-y-3 ${suspension !== null ? 'line-through decoration-slate-300' : ''}`}>
         {sesion.temas.map((t) => (
           <div key={t.titulo} className="flex gap-3">
             <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-linea bg-slate-50">
@@ -63,9 +74,9 @@ export function TarjetaSesion({ sesion, compacta }: { sesion: Sesion; compacta?:
             ))}
             {sesion.parcial && <ChipParcial texto={sesion.parcial} />}
           </div>
-          {e !== 'dictada' && (
+          {e !== 'dictada' && suspension === null && (
             <div className="flex gap-1.5">
-              <Agendar sesion={sesion} compacto />
+              <Agendar sesion={sesion} compacto ventanas={ventanas} />
               {esCatedra() && (
                 <>
                   <Link to={`/aula/${sesion.id}`} className="btn btn-secundario !px-2.5 !py-1.5 !text-xs" title="Proyectar QR dinámico (cátedra)">

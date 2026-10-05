@@ -6,7 +6,7 @@ import { IconoArea } from '../components/ui'
 import { CATEDRA } from '../lib/config'
 import { AREAS, CRONOGRAMA, type Area } from '../lib/cronograma'
 import { useNow, useVentanas } from '../lib/hooks'
-import { cuenta, diaSemana, estadoClase, fechaCorta, hmArt, infoVentana, instante, sesionVigente, ventanaDefault } from '../lib/time'
+import { clasesVigentes, cuenta, diaSemana, estadoClase, fechaCorta, hmArt, infoVentana, instante, sesionVigente, suspendida, ventanaDefault } from '../lib/time'
 import { Pie } from './Pie'
 
 type Filtro = Area | 'parciales' | 'todas'
@@ -35,7 +35,8 @@ export function Cronograma() {
   const inicio = instante(CRONOGRAMA[0].fecha, '00:00')
   const fin = instante(CRONOGRAMA[CRONOGRAMA.length - 1].fecha, '23:59')
   const avance = Math.min(1, Math.max(0, (now - inicio) / (fin - inicio)))
-  const dictadas = CRONOGRAMA.filter((s) => estadoClase(s, now) === 'dictada').length
+  const dictadas = CRONOGRAMA.filter((s) => estadoClase(s, now) === 'dictada' && !suspendida(ventanas, s.id)).length
+  const vigentes = clasesVigentes(ventanas).length
   const proxima = sesionVigente(ventanas, now)
   const infoProx = proxima && infoVentana(proxima.fecha, ventanas?.[proxima.id] ?? ventanaDefault(), now)
 
@@ -76,14 +77,14 @@ export function Cronograma() {
             <h1 className="font-display text-4xl font-bold text-tinta sm:text-5xl">Cronograma de clases teóricas</h1>
             <p className="mt-3 max-w-2xl text-slate-600">Miércoles y viernes a las 8:00. El registro de asistencia abre a las 07:30 y cierra a las 08:10.</p>
           </div>
-          <Agendar />
+          <Agendar ventanas={ventanas} />
         </div>
 
         <div className="tarjeta hud mt-8 p-5">
           <div className="flex items-center justify-between font-mono text-xs text-slate-500">
             <span>{fechaCorta(CRONOGRAMA[0].fecha)}</span>
             <span className="text-tinta">
-              {dictadas}/{CRONOGRAMA.length} clases · {Math.round(avance * 100)} % del cursado
+              {dictadas}/{vigentes} clases{vigentes < CRONOGRAMA.length ? ` (${CRONOGRAMA.length - vigentes} suspendida${CRONOGRAMA.length - vigentes === 1 ? '' : 's'})` : ''} · {Math.round(avance * 100)} % del cursado
             </span>
             <span>{fechaCorta(CRONOGRAMA[CRONOGRAMA.length - 1].fecha)}</span>
           </div>
@@ -146,8 +147,8 @@ export function Cronograma() {
 
         <ol className="relative mt-8 space-y-6 before:absolute before:top-2 before:bottom-2 before:left-[0.6rem] before:w-px before:bg-gradient-to-b before:from-rosa/50 before:via-violeta/30 before:to-cian/50 sm:before:left-[7.5rem]">
           {visibles.map((s) => {
-            const e = estadoClase(s, now)
-            const activo = e === 'hoy' || e === 'proxima'
+            const e = estadoClase(s, now, ventanas)
+            const activo = (e === 'hoy' || e === 'proxima') && !suspendida(ventanas, s.id)
             return (
               <li key={s.id} id={`clase-${s.id}`} className="al-ver relative grid scroll-mt-28 has-[details[open]]:z-20 gap-4 pl-8 sm:grid-cols-[6.5rem_1fr] sm:gap-10 sm:pl-0">
                 <div className="hidden pt-5 text-right sm:block">
@@ -159,7 +160,7 @@ export function Cronograma() {
                 >
                   {activo && <span className="animate-latido absolute inset-0 rounded-full bg-rosa" />}
                 </span>
-                <TarjetaSesion sesion={s} />
+                <TarjetaSesion sesion={s} ventanas={ventanas} />
               </li>
             )
           })}

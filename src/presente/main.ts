@@ -7,7 +7,7 @@ import { GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
 import { firmar, huellaCorta, obtenerDispositivo, type Dispositivo } from '../lib/device'
 import { obtenerUbicacion } from '../lib/geo'
-import { cuenta, diaSemana, fechaCorta, hmArt, horaArt, hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
+import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, horaArt, hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { cryptoDisponible } from '../lib/totp'
 
 const app = document.getElementById('app')!
@@ -68,6 +68,7 @@ function chipEstado(s: Sesion | undefined) {
   // Otro día sólo interesa si el docente lo abrió a mano.
   if (s.fecha !== hoyIso() && !(v.manual && v.estado === 'abierta')) return ''
   const ahora = Date.now()
+  if (v.estado === 'suspendida') return `<span class="chip chip-ambar">Clase suspendida</span>`
   if (v.estado === 'abierta')
     return `<span class="chip chip-vital"><span class="punto"></span>Registro abierto · cierra en <b class="font-mono tabular-nums">${cuenta(v.cierra - ahora)}</b></span>`
   if (v.estado === 'programada')
@@ -157,6 +158,7 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Por seguridad cada alumno usa un único celular. Si cambiaste de teléfono o borraste los datos del navegador, pedile a la cátedra que lo libere o que te dé el presente a mano.' },
   DISPOSITIVO_OCUPADO: { titulo: 'Este celular ya registró a otra persona', texto: () => 'Cada celular queda asociado a un solo alumno. Registrate desde tu propio teléfono o pedile a la cátedra el presente manual.' },
   FIRMA_INVALIDA: { titulo: 'No se pudo verificar el celular', texto: () => 'Revisá que la fecha y hora del teléfono estén en automático y volvé a intentar.', reintentar: true },
+  SUSPENDIDA: { titulo: 'La clase se suspendió', texto: (d) => `${d ? `Motivo: ${d}. ` : ''}No hay que dar presente y esta clase no cuenta para la regularidad.` },
   FUERA_DE_RANGO: { titulo: 'Fuera de la Facultad', texto: () => 'El presente sólo se acepta desde el aula.', reintentar: true },
   SIN_CRYPTO: { titulo: 'Navegador no compatible', texto: () => 'Abrí el enlace con Chrome o Safari actualizados.' },
   NO_AUTORIZADO: { titulo: 'Sin autorización', texto: () => 'No tenés permisos para esta acción.' },
@@ -178,7 +180,7 @@ function mostrarError(sesion: Sesion | undefined, error: CodigoError, detalle?: 
       <p class="mt-2 text-slate-600">${esc(auto ? `El registro abre ${cuandoAbre(abre)}. Dejá esta pantalla abierta: el presente se da solo en ese momento.` : e.texto(detalle))}</p>
       <div class="mt-6 flex flex-col gap-2">
         ${e.reintentar && reintentar ? '<button id="reintentar" class="btn btn-primario w-full !py-3">Reintentar</button>' : ''}
-        <a href="/p/" class="btn btn-secundario w-full">Ingresar el código a mano</a>
+        ${error === 'SUSPENDIDA' ? '<a href="/p/?mia=1" class="btn btn-secundario w-full">Ver mi asistencia</a>' : '<a href="/p/" class="btn btn-secundario w-full">Ingresar el código a mano</a>'}
         <a href="${enlaceElena(`Al dar el presente me apareció «${e.titulo}». ¿Qué hago?`)}" target="_blank" rel="noopener" class="mt-1 text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Qué hago? Preguntale a Elena</a>
       </div>
       <div class="mt-3 font-mono text-[0.6rem] tracking-widest text-slate-300">${error}</div>
@@ -243,7 +245,7 @@ const chispas = () =>
   }).join('')
 
 function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>, huella: string) {
-  const proxima = CRONOGRAMA.find((s) => s.fecha > sesion.fecha)
+  const proxima = clasesVigentes(ventanas).find((s) => s.fecha > sesion.fecha)
   const vProx = proxima ? (ventanas?.[proxima.id] ?? ventanaDefault()) : null
   pintar(
     sesion,
@@ -291,6 +293,7 @@ const ESTADOS = {
   hoy: ['Hoy', 'bg-ambar-suave text-ambar'],
   futura: ['Próxima', 'bg-slate-100 text-slate-500'],
   sinRegistro: ['No se tomó', 'bg-slate-100 text-slate-500'],
+  suspendida: ['Suspendida · no cuenta', 'bg-ambar-suave text-ambar'],
 } as const
 
 async function verMiAsistencia() {
@@ -333,7 +336,9 @@ async function verMiAsistencia() {
   const hoy = hoyIso()
   const filas = CRONOGRAMA.map((sesion) => {
     const c = r.clases.find((x) => x.id === sesion.id)
-    const estado: keyof typeof ESTADOS = c?.marca
+    const estado: keyof typeof ESTADOS = c?.suspendida
+      ? 'suspendida'
+      : c?.marca
       ? c.marca === 'manual'
         ? 'manual'
         : 'presente'
@@ -590,18 +595,22 @@ async function escanear(sesion: Sesion) {
 function pedirCodigo(aviso?: string) {
   const hoy = hoyIso()
   const deHoy = CRONOGRAMA.find((s) => s.fecha === hoy)
-  // Si el registro de hoy ya cerró, no tiene sentido pedir un código: se muestra la próxima clase.
-  const cerrada = !!deHoy && infoVentana(deHoy.fecha, ventanas?.[deHoy.id] ?? ventanaDefault()).estado === 'cerrada'
-  const sesion = cerrada ? undefined : deHoy
+  // Si el registro de hoy ya cerró (o la clase se suspendió), no tiene sentido pedir un código: se muestra la próxima.
+  const estadoHoy = deHoy && infoVentana(deHoy.fecha, ventanas?.[deHoy.id] ?? ventanaDefault()).estado
+  const cerrada = estadoHoy === 'cerrada'
+  const suspendidaHoy = estadoHoy === 'suspendida'
+  const sesion = cerrada || suspendidaHoy ? undefined : deHoy
   if (!sesion) {
-    const proxima = CRONOGRAMA.find((s) => s.fecha > hoy)
+    const proxima = clasesVigentes(ventanas).find((s) => s.fecha > hoy)
+    const motivo = suspendidaHoy && deHoy ? ventanas?.[deHoy.id]?.motivoSuspension : null
     const abre = proxima ? instante(proxima.fecha, (ventanas?.[proxima.id] ?? ventanaDefault()).apertura) : 0
     return pintar(
       undefined,
       `<div class="tarjeta hud p-6">
         <div class="grid h-12 w-12 place-items-center rounded-2xl bg-cian-suave text-cian">${svg(I.reloj)}</div>
-        <h1 class="mt-4 text-2xl font-semibold text-tinta">${cerrada ? 'El registro de hoy ya cerró' : 'Hoy no hay clase teórica'}</h1>
+        <h1 class="mt-4 text-2xl font-semibold text-tinta">${cerrada ? 'El registro de hoy ya cerró' : suspendidaHoy ? 'La clase de hoy se suspendió' : 'Hoy no hay clase teórica'}</h1>
         ${cerrada ? '<p class="mt-2 text-slate-600">Si estuviste en clase y no llegaste a dar presente, avisale a la cátedra.</p>' : ''}
+        ${suspendidaHoy ? `<p class="mt-2 text-slate-600">${motivo ? `Motivo: ${esc(motivo)}. ` : ''}No hay que dar presente y no cuenta para la regularidad.</p>` : ''}
         ${
           proxima
             ? `<p class="mt-2 text-slate-600">La próxima es el <b>${diaSemana(proxima.fecha).toLowerCase()} ${fechaCorta(proxima.fecha)}</b>: ${esc(proxima.temas[0].titulo)}.</p>

@@ -41,6 +41,7 @@ const ESTADO: Record<EstadoVentana, { texto: string; color: string }> = {
   abierta: { texto: 'Registro abierto', color: '#0e9f68' },
   programada: { texto: 'Programado', color: '#c27c03' },
   cerrada: { texto: 'Registro cerrado', color: '#e0246f' },
+  suspendida: { texto: 'Clase suspendida', color: '#8a7480' },
 }
 
 export function PildoraEstado({ estado, grande }: { estado: EstadoVentana; grande?: boolean }) {

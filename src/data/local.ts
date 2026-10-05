@@ -12,11 +12,12 @@ import type { AdminApi, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, F
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
   const hoy = hoyIso()
-  const dictadas = CRONOGRAMA.filter((s) => (s.fecha <= hoy || s.id === sesionId) && regs.some((r) => r.sesionId === s.id))
+  const vigentes = CRONOGRAMA.filter((s) => !ventanaDe(s.id).suspendida)
+  const dictadas = vigentes.filter((s) => (s.fecha <= hoy || s.id === sesionId) && regs.some((r) => r.sesionId === s.id))
   return {
     presentes: dictadas.filter((s) => regs.some((r) => r.sesionId === s.id && r.libreta === libreta)).length,
     dictadas: dictadas.length,
-    restantes: CRONOGRAMA.filter((s) => s.fecha >= hoy && !dictadas.includes(s)).length,
+    restantes: vigentes.filter((s) => s.fecha >= hoy && !dictadas.includes(s)).length,
   }
 }
 
@@ -124,6 +125,7 @@ export function crearLocal(): PublicoApi & AdminApi {
       const s = sesionPorId(sesionId)
       if (!s) return fallo('SESION_INEXISTENTE')
       const info = infoVentana(s.fecha, ventanaDe(sesionId))
+      if (info.estado === 'suspendida') return fallo('SUSPENDIDA', ventanaDe(sesionId).motivoSuspension ?? undefined)
       if (info.estado === 'programada') return fallo('PROGRAMADA', String(info.abre))
       if (info.estado === 'cerrada') return fallo('CERRADA', String(info.cierra))
       const sec = secretoDe(sesionId)
@@ -166,7 +168,8 @@ export function crearLocal(): PublicoApi & AdminApi {
         progreso: progresoDe(regs, a.libreta, ''),
         clases: CRONOGRAMA.map((s) => ({
           id: s.id,
-          dictada: s.fecha <= hoy && regs.some((r) => r.sesionId === s.id),
+          dictada: !ventanaDe(s.id).suspendida && s.fecha <= hoy && regs.some((r) => r.sesionId === s.id),
+          suspendida: !!ventanaDe(s.id).suspendida,
           marca: regs.find((r) => r.sesionId === s.id && r.libreta === a.libreta)?.metodo ?? null,
         })),
       }
@@ -175,6 +178,7 @@ export function crearLocal(): PublicoApi & AdminApi {
     async marcar(p) {
       const metodo = await validarPase(p.sesionId, p.pase)
       if (typeof metodo !== 'string') return metodo
+      if (ventanaDe(p.sesionId).suspendida) return fallo('SUSPENDIDA', ventanaDe(p.sesionId).motivoSuspension ?? undefined)
       const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(p.dni))
       if (!a) return fallo('DNI_DESCONOCIDO')
 
@@ -339,6 +343,20 @@ export function crearLocal(): PublicoApi & AdminApi {
     },
     async cambiarClave(email) {
       auditar({ accion: 'clave_cambiada', sesionId: null, libreta: null, cuenta: email, detalle: null })
+    },
+    async suspenderClase(sesionId, motivo) {
+      const m = motivo?.trim().slice(0, 200) ?? null
+      if (motivo !== null && !m) throw new Error('Escribí el motivo de la suspensión (los alumnos lo van a ver).')
+      const todas = leer<Record<string, Ventana>>(K.ventanas, {})
+      const v = { ...ventanaDefault(), ...todas[sesionId] }
+      if (m) {
+        todas[sesionId] = { ...v, suspendida: true, motivoSuspension: m, manualDesde: null, manualHasta: null }
+        auditar({ accion: 'clase_suspendida', sesionId, libreta: null, detalle: m })
+      } else if (v.suspendida) {
+        todas[sesionId] = { ...v, suspendida: false, motivoSuspension: null }
+        auditar({ accion: 'clase_reanudada', sesionId, libreta: null, detalle: v.motivoSuspension ?? null })
+      }
+      escribir(K.ventanas, todas)
     },
     async rechazar(email) {
       const { solicitudes } = await this.cuentas()

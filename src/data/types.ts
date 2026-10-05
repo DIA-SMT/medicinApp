@@ -42,6 +42,7 @@ export type CodigoError =
   | 'DISPOSITIVO_OCUPADO'
   | 'FIRMA_INVALIDA'
   | 'FUERA_DE_RANGO'
+  | 'SUSPENDIDA'
   | 'SIN_CRYPTO'
   | 'NO_AUTORIZADO'
   | 'RED'
@@ -70,7 +71,7 @@ export interface Progreso {
 
 /** Lo que ve el alumno en «Mi asistencia»: sus clases y su avance hacia la regularidad. */
 export type ResultadoMiAsistencia =
-  | { ok: true; nombre: string; progreso: Progreso; clases: { id: string; dictada: boolean; marca: Metodo | null }[] }
+  | { ok: true; nombre: string; progreso: Progreso; clases: { id: string; dictada: boolean; suspendida?: boolean; marca: Metodo | null }[] }
   | Fallo
 
 export interface PedidoMarca {
@@ -96,6 +97,8 @@ export type AccionAuditoria =
   | 'solicitud_rechazada'
   | 'cuenta_creada'
   | 'clave_cambiada'
+  | 'clase_suspendida'
+  | 'clase_reanudada'
 
 export type Rol = 'admin' | 'docente'
 
@@ -185,6 +188,8 @@ export interface AdminApi {
   /** Administradores: crear una cuenta ya confirmada con contraseña inicial, y cambiar una olvidada. */
   crearCuenta(email: string, rol: Rol, clave: string): Promise<void>
   cambiarClave(email: string, clave: string): Promise<void>
+  /** Administradores: suspender una clase con un motivo (no cuenta para la regularidad), o reanudarla con null. */
+  suspenderClase(sesionId: string, motivo: string | null): Promise<void>
 
   /** Herramientas sólo disponibles en modo demostración. */
   demo?: {

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CalendarOff, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { EcgLine } from '../components/EcgLine'
@@ -12,7 +12,7 @@ import { CRONOGRAMA, DNIS_ENSAYO, docentesSesion, sesionPorId } from '../lib/cro
 import { enlaceRegistro } from '../lib/enlaces'
 import { nombreCorto, pct } from '../lib/format'
 import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
-import { cuenta, diaSemana, fechaCorta, hmArt, horaArt, infoVentana, sesionActual, ventanaDefault, type Ventana } from '../lib/time'
+import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, horaArt, infoVentana, sesionActual, suspendida, ventanaDefault, type Ventana } from '../lib/time'
 import { contador, segundosRestantes, totp } from '../lib/totp'
 
 /** Qué significa cada error que ven los alumnos y qué puede hacer el docente. */
@@ -82,8 +82,8 @@ export function Aula() {
   const { desfase, medido } = useDesfase()
   const now = useNow(250) + desfase
   const enLinea = useEnLinea()
-  const sesion = (id && sesionPorId(id)) || sesionActual(now) || CRONOGRAMA[CRONOGRAMA.length - 1]
   const { ventanas, recargar } = useVentanas()
+  const sesion = (id && sesionPorId(id)) || sesionActual(now, ventanas) || CRONOGRAMA[CRONOGRAMA.length - 1]
   const ventana = ventanas?.[sesion.id] ?? ventanaDefault()
   const info = infoVentana(sesion.fecha, ventana, now)
   const abierta = info.estado === 'abierta'
@@ -182,7 +182,8 @@ export function Aula() {
   const presentes = resumen?.presentes ?? 0
   const progresoVentana = Math.min(1, Math.max(0, (now - info.abre) / (info.cierra - info.abre)))
   const porCerrar = abierta && info.cierra - now < 2 * 60e3
-  const siguiente = CRONOGRAMA.find((s) => s.fecha > sesion.fecha)
+  const siguiente = clasesVigentes(ventanas).find((s) => s.fecha > sesion.fecha)
+  const suspendidaAhora = info.estado === 'suspendida'
 
   return (
     <div className="relative flex h-dvh flex-col overflow-hidden lg:min-h-[640px]">
@@ -205,7 +206,7 @@ export function Aula() {
           <option value="ensayo">Ensayo · no cuenta para la regularidad</option>
           {CRONOGRAMA.map((s) => (
             <option key={s.id} value={s.id}>
-              Nº {String(s.n).padStart(2, '0')} · {fechaCorta(s.fecha)} · {s.temas[0].titulo.slice(0, 32)}
+              Nº {String(s.n).padStart(2, '0')} · {fechaCorta(s.fecha)} · {suspendida(ventanas, s.id) ? 'SUSPENDIDA' : s.temas[0].titulo.slice(0, 32)}
             </option>
           ))}
         </select>
@@ -258,6 +259,25 @@ export function Aula() {
                   <QrCode value="CICLO-GINECOLOGIA-FM-UNT-2026" className="absolute inset-[8%] h-[84%] w-[84%] opacity-[0.06]" />
                   {error ? (
                     <p className="relative px-6 text-sm text-rosa-oscuro">No se pudo obtener la semilla de la sesión: {error}</p>
+                  ) : suspendidaAhora ? (
+                    <>
+                      <div className="relative grid h-20 w-20 place-items-center rounded-full border border-ambar/40 bg-white shadow-sm">
+                        <CalendarOff className="h-9 w-9 text-ambar" />
+                      </div>
+                      <div className="relative font-display text-2xl font-semibold text-tinta">Clase suspendida</div>
+                      <div className="relative px-6 text-slate-600">{ventana.motivoSuspension}</div>
+                      <p className="no-print relative max-w-xs px-4 text-sm text-slate-500">No se toma asistencia y no cuenta para la regularidad. Para reanudarla: Panel → Por clase.</p>
+                      <div className="no-print relative flex flex-wrap justify-center gap-2 px-4">
+                        <Link to={`/panel?tab=clase&s=${sesion.id}`} className="btn btn-secundario">
+                          Ir al panel
+                        </Link>
+                        {siguiente && (
+                          <Link to={`/aula/${siguiente.id}`} className="btn btn-primario">
+                            Próxima: {fechaCorta(siguiente.fecha)} <ArrowRight className="h-4 w-4" />
+                          </Link>
+                        )}
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="relative grid h-20 w-20 place-items-center rounded-full border border-linea bg-white shadow-sm">
@@ -345,10 +365,10 @@ export function Aula() {
                 )}
               </div>
               <div className="mt-4 font-mono text-[0.7rem] tracking-[0.2em] text-slate-400 uppercase">
-                {info.estado === 'programada' ? 'Abre en' : info.estado === 'abierta' ? 'Cierra en' : 'Cerrado'}
+                {info.estado === 'programada' ? 'Abre en' : info.estado === 'abierta' ? 'Cierra en' : info.estado === 'suspendida' ? 'Suspendida' : 'Cerrado'}
               </div>
               <div className={`font-mono font-bold tabular-nums ${info.estado === 'abierta' ? 'text-tinta' : 'text-slate-400'}`} style={{ fontSize: 'clamp(2.4rem, 4.6vw, 4.6rem)', lineHeight: 1 }}>
-                {info.estado === 'programada' ? cuenta(info.abre - now) : info.estado === 'abierta' ? cuenta(info.cierra - now) : hmArt(info.cierra)}
+                {info.estado === 'programada' ? cuenta(info.abre - now) : info.estado === 'abierta' ? cuenta(info.cierra - now) : info.estado === 'suspendida' ? '—' : hmArt(info.cierra)}
               </div>
               <div className="mt-4">
                 <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -473,7 +493,7 @@ export function Aula() {
                 <Square className="h-4 w-4 text-rosa" /> Cerrar registro
               </button>
             </>
-          ) : (
+          ) : suspendidaAhora ? null : (
             <button className="btn btn-secundario !py-2 !text-sm" onClick={() => abrirAhora(10)}>
               <Unlock className="h-4 w-4 text-vital" /> Abrir ahora · 10 min
             </button>

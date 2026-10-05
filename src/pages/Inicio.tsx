@@ -11,7 +11,7 @@ import { ChipArea, Seccion } from '../components/ui'
 import { APERTURA_DEFAULT, CATEDRA, CIERRE_DEFAULT, TOTP_PASO_S, UMBRAL_REGULARIDAD } from '../lib/config'
 import { AREAS, CRONOGRAMA, type Area } from '../lib/cronograma'
 import { useNow, useVentanas } from '../lib/hooks'
-import { cuenta, hmArt, hoyIso, infoVentana, sesionVigente, ventanaDefault } from '../lib/time'
+import { clasesVigentes, cuenta, hmArt, hoyIso, infoVentana, sesionVigente, ventanaDefault } from '../lib/time'
 import { Pie } from './Pie'
 
 const PASOS_PRESENTE = [
@@ -84,7 +84,10 @@ export function Inicio() {
   const areas = Object.keys(AREAS) as Area[]
   const total = CRONOGRAMA.reduce((n, s) => n + s.temas.length, 0)
   // Con la app se toma asistencia desde la clase Nº 3 (07/10); las dos primeras cuentan sólo si la cátedra las carga.
-  const conApp = CRONOGRAMA.length - 2
+  // Las suspendidas no cuentan para nada.
+  const vigentes = clasesVigentes(ventanas)
+  const conApp = vigentes.filter((s) => s.fecha >= '2026-10-07').length
+  const suspendidas = CRONOGRAMA.length - vigentes.length
 
   return (
     <main>
@@ -122,7 +125,7 @@ export function Inicio() {
               <Link to="/cronograma" className="btn btn-secundario !px-5 !py-3 text-base">
                 <CalendarDays className="h-5 w-5" /> Cronograma
               </Link>
-              <Agendar className="[&>summary]:!px-5 [&>summary]:!py-3 [&>summary]:text-base" />
+              <Agendar ventanas={ventanas} className="[&>summary]:!px-5 [&>summary]:!py-3 [&>summary]:text-base" />
             </div>
 
             <dl className="mt-10 grid max-w-xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-linea bg-linea sm:grid-cols-4">
@@ -200,7 +203,8 @@ export function Inicio() {
               <p className="text-slate-600">
                 Se cuenta sobre las clases en las que se tomó asistencia. Con la app se toma desde el 07/10: son {conApp} clases, así que necesitás{' '}
                 <b className="text-tinta">al menos {minimo(conApp)} presentes</b> (podés faltar a {conApp - minimo(conApp)}). Si la cátedra también carga las dos
-                primeras, serían {minimo(CRONOGRAMA.length)} de {CRONOGRAMA.length}.
+                primeras, serían {minimo(vigentes.length)} de {vigentes.length}.
+                {suspendidas > 0 && ` ${suspendidas === 1 ? 'Hay 1 clase suspendida, que no cuenta' : `Hay ${suspendidas} clases suspendidas, que no cuentan`}.`}
               </p>
               <p className="mt-3 text-sm text-slate-500">Cada vez que das el presente, la pantalla te muestra cuántos llevás y cuántas faltas te quedan.</p>
               <a href="/p/?mia=1" className="btn btn-secundario mt-4">
@@ -266,7 +270,7 @@ export function Inicio() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {proximas.map((s) => (
                 <div key={s.id} className="al-ver">
-                  <TarjetaSesion sesion={s} compacta />
+                  <TarjetaSesion sesion={s} compacta ventanas={ventanas} />
                 </div>
               ))}
             </div>

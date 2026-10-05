@@ -11,13 +11,16 @@ export interface Ventana {
   manualDesde?: number | null
   /** Cierre manual anticipado (epoch ms en que se cerró). */
   cerradaEn?: number | null
+  /** Clase suspendida (paro, feriado…): no se toma asistencia y no cuenta para la regularidad. */
+  suspendida?: boolean
+  motivoSuspension?: string | null
 }
 
 export const ventanaDefault = (): Ventana => ({ apertura: APERTURA_DEFAULT, cierre: CIERRE_DEFAULT })
 
 export const instante = (fecha: string, hhmm: string) => new Date(`${fecha}T${hhmm}:00${TZ_OFFSET}`).getTime()
 
-export type EstadoVentana = 'programada' | 'abierta' | 'cerrada'
+export type EstadoVentana = 'programada' | 'abierta' | 'cerrada' | 'suspendida'
 
 export interface InfoVentana {
   estado: EstadoVentana
@@ -29,6 +32,7 @@ export interface InfoVentana {
 export function infoVentana(fecha: string, v: Ventana, now = Date.now()): InfoVentana {
   const abre = instante(fecha, v.apertura)
   const cierra = instante(fecha, v.cierre)
+  if (v.suspendida) return { estado: 'suspendida', abre, cierra, manual: false }
   // abrir/cerrar manual son excluyentes: cada acción limpia a la otra.
   if (v.manualHasta && now < v.manualHasta) {
     return { estado: 'abierta', abre: v.manualDesde ?? now, cierra: v.manualHasta, manual: true }
@@ -88,24 +92,30 @@ export function partesCuenta(ms: number) {
 
 export type EstadoClase = 'dictada' | 'hoy' | 'proxima' | 'futura'
 
-/** Sesión de hoy si existe; si no, la próxima en el calendario. */
-export function sesionActual(now = Date.now()): Sesion | undefined {
+export const suspendida = (ventanas: Record<string, Ventana> | null | undefined, id: string) => !!ventanas?.[id]?.suspendida
+
+/** Las clases del cronograma que no están suspendidas. */
+export const clasesVigentes = (ventanas: Record<string, Ventana> | null | undefined) => CRONOGRAMA.filter((s) => !suspendida(ventanas, s.id))
+
+/** Sesión de hoy si existe; si no, la próxima en el calendario (salteando las suspendidas, si se conocen). */
+export function sesionActual(now = Date.now(), ventanas?: Record<string, Ventana> | null): Sesion | undefined {
   const hoy = hoyIso(now)
-  return CRONOGRAMA.find((s) => s.fecha === hoy) ?? CRONOGRAMA.find((s) => s.fecha > hoy)
+  const lista = clasesVigentes(ventanas)
+  return lista.find((s) => s.fecha === hoy) ?? lista.find((s) => s.fecha > hoy)
 }
 
 /** Como sesionActual, pero si el registro de hoy ya cerró pasa a la próxima clase. */
 export function sesionVigente(ventanas: Record<string, Ventana> | null, now = Date.now()): Sesion | undefined {
-  const s = sesionActual(now)
+  const s = sesionActual(now, ventanas)
   if (!s || s.fecha !== hoyIso(now)) return s
   const cerrada = infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now).estado === 'cerrada'
-  return cerrada ? (CRONOGRAMA.find((x) => x.fecha > s.fecha) ?? s) : s
+  return cerrada ? (clasesVigentes(ventanas).find((x) => x.fecha > s.fecha) ?? s) : s
 }
 
-export function estadoClase(s: Sesion, now = Date.now()): EstadoClase {
+export function estadoClase(s: Sesion, now = Date.now(), ventanas?: Record<string, Ventana> | null): EstadoClase {
   const hoy = hoyIso(now)
   if (s.fecha < hoy) return 'dictada'
   if (s.fecha === hoy) return 'hoy'
-  const prox = CRONOGRAMA.find((x) => x.fecha > hoy)
+  const prox = clasesVigentes(ventanas).find((x) => x.fecha > hoy)
   return prox?.id === s.id ? 'proxima' : 'futura'
 }

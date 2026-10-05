@@ -13,6 +13,8 @@ export interface FilaSesion {
   manual_desde: string | null
   manual_hasta: string | null
   cerrada_en: string | null
+  suspendida?: boolean
+  motivo_suspension?: string | null
 }
 
 const fechaArt = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ms)
@@ -38,8 +40,11 @@ function estadoActual(filas: FilaSesion[] | null, now: number) {
   const porId = new Map((filas ?? []).map((f) => [f.id, f]))
   const hoy = fechaArt(now)
   const lineas = [`Ahora es ${dia(hoy)}, ${horaArt(now)} hs (hora de Tucumán).`]
+  const suspendida = (s: Sesion) => !!porId.get(s.id)?.suspendida
   const deHoy = CRONOGRAMA.find((s) => s.fecha === hoy)
-  if (deHoy) {
+  if (deHoy && suspendida(deHoy)) {
+    lineas.push(`Hoy había clase (Nº ${deHoy.n}: ${titulo(deHoy)}) pero SE SUSPENDIÓ (motivo: ${porId.get(deHoy.id)?.motivo_suspension ?? 'sin especificar'}). No hay que dar presente y no cuenta para la regularidad.`)
+  } else if (deHoy) {
     const v = ventana(deHoy, porId.get(deHoy.id), now)
     const rango = `${horaArt(v.abre)} a ${horaArt(v.cierra)}`
     lineas.push(
@@ -52,14 +57,20 @@ function estadoActual(filas: FilaSesion[] | null, now: number) {
   } else {
     lineas.push('Hoy no hay clase teórica.')
   }
-  const proxima = CRONOGRAMA.find((s) => s.fecha > hoy)
+  const proxima = CRONOGRAMA.find((s) => s.fecha > hoy && !suspendida(s))
   if (proxima) {
     const f = porId.get(proxima.id)
     lineas.push(`Próxima clase: Nº ${proxima.n}, ${dia(proxima.fecha)} (${titulo(proxima)}). Registro de ${(f?.apertura ?? APERTURA_DEFAULT).slice(0, 5)} a ${(f?.cierre ?? CIERRE_DEFAULT).slice(0, 5)}.`)
   } else {
     lineas.push('Ya no quedan clases teóricas en el cronograma de este cursado.')
   }
-  if (!filas) lineas.push('(No se pudo consultar la base: son los horarios por defecto; el docente puede haberlos cambiado.)')
+  const suspendidas = CRONOGRAMA.filter(suspendida)
+  if (suspendidas.length) {
+    lineas.push(
+      `Clases SUSPENDIDAS (no se toma asistencia y no cuentan para la regularidad, ni como dictadas ni como faltas): ${suspendidas.map((s) => `Nº ${s.n} del ${dia(s.fecha)} (${porId.get(s.id)?.motivo_suspension ?? 'sin motivo'})`).join('; ')}. El 70% se calcula sobre las demás.`,
+    )
+  }
+  if (!filas) lineas.push('(No se pudo consultar la base: son los horarios por defecto; el docente puede haberlos cambiado, y puede haber clases suspendidas que no conocés.)')
   return lineas.join('\n')
 }
 
@@ -132,6 +143,7 @@ PARA LA CÁTEDRA (cuenta habilitada, entra en medicinapp.vercel.app/#/panel)
 - Planilla: Panel → «Regularidad» (Regular / En riesgo / Libre, con umbral ajustable; por defecto ${UMBRAL_REGULARIDAD}%), «Descargar planilla (PDF)» con el diseño de la cátedra, logos y lugar para la firma (también hay un botón «CSV» para Excel). En «Por clase», la lista de cada clase también se descarga en PDF. Un clic en un casillero de la grilla carga o quita un presente; aparece un aviso con «Deshacer» por si fue sin querer (quitar un presente por QR pide confirmación).
 - Copia de seguridad: la base no guarda copias automáticas, así que al terminar cada clase conviene «Descargar planilla (PDF)» (o el CSV, que sirve para volver a cargar los datos). Cuando una clase cierra, el panel muestra un aviso con «Descargar planilla» (y el proyector, un botón para ir a descargarla).
 - Historial: Panel → «Historial» muestra quién cargó o quitó presentes a mano y quién liberó celulares.
+- Suspender una clase (paro, feriado, asueto): un administrador entra a Panel → «Por clase», elige la clase y toca «Suspender esta clase» con un motivo. Esa clase no deja dar presente y no cuenta para la regularidad de nadie (ni como dictada ni como falta); los alumnos ven el motivo en la app. Se revierte con «Reanudar la clase» y queda en el Historial.
 - En la PC del aula conviene ingresar sin marcar «Recordarme en esta computadora»: la sesión se cierra sola al cerrar el navegador.
 - Cuentas de la cátedra: las crea un administrador en Panel → pestaña «Cuentas» → «Crear una cuenta» (email, rol y una contraseña inicial que sugiere la app); queda lista para entrar, sin correo de confirmación, y el panel muestra los datos para pasárselos a la persona. Roles: «Docente» (proyector, presente manual, planilla) y «Administrador» (además gestiona cuentas). Si alguien olvidó la contraseña, un administrador toca «Cambiar contraseña» en esa cuenta y le pasa la nueva. Cada uno puede cambiar la suya en el panel con «Mi contraseña» (conviene hacerlo al entrar por primera vez). No hay creación de cuentas por cuenta propia: hay que pedírsela a un administrador.
 

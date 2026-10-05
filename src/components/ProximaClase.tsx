@@ -22,7 +22,7 @@ export function ProximaClase({ sesion }: { sesion: Sesion }) {
   const { ventanas } = useVentanas()
   const v = ventanas?.[sesion.id] ?? ventanaDefault()
   const info = infoVentana(sesion.fecha, v, now)
-  const ec = estadoClase(sesion, now)
+  const ec = estadoClase(sesion, now, ventanas)
   const p = partesCuenta((info.estado === 'programada' ? info.abre : info.cierra) - now)
 
   return (
@@ -78,7 +78,7 @@ export function ProximaClase({ sesion }: { sesion: Sesion }) {
             <ScanLine className="h-4 w-4" /> Dar presente
           </a>
         )}
-        <Agendar sesion={sesion} />
+        <Agendar sesion={sesion} ventanas={ventanas} />
         {esCatedra() && (
           <>
             <Link to={`/aula/${sesion.id}`} className="btn btn-secundario" title="Sólo para la cátedra">

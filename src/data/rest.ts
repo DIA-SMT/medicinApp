@@ -63,10 +63,10 @@ export const restPublico: PublicoApi = {
   },
 
   async ventanas() {
-    type Fila = { id: string; apertura: string; cierre: string; manual_desde: string | null; manual_hasta: string | null; cerrada_en: string | null }
+    type Fila = { id: string; apertura: string; cierre: string; manual_desde: string | null; manual_hasta: string | null; cerrada_en: string | null; suspendida?: boolean; motivo_suspension?: string | null }
     let filas: Fila[] = []
     try {
-      const r = await pedir('/sesiones?select=id,apertura,cierre,manual_desde,manual_hasta,cerrada_en')
+      const r = await pedir('/sesiones?select=id,apertura,cierre,manual_desde,manual_hasta,cerrada_en,suspendida,motivo_suspension')
       if (r.ok) filas = await r.json()
     } catch {
       /* sin red: se usan los horarios por defecto */
@@ -76,7 +76,7 @@ export const restPublico: PublicoApi = {
       CRONOGRAMA.map((s) => {
         const f = porId.get(s.id)
         const v: Ventana = f
-          ? { apertura: hm(f.apertura)!, cierre: hm(f.cierre)!, manualDesde: ms(f.manual_desde), manualHasta: ms(f.manual_hasta), cerradaEn: ms(f.cerrada_en) }
+          ? { apertura: hm(f.apertura)!, cierre: hm(f.cierre)!, manualDesde: ms(f.manual_desde), manualHasta: ms(f.manual_hasta), cerradaEn: ms(f.cerrada_en), suspendida: !!f.suspendida, motivoSuspension: f.motivo_suspension ?? null }
           : ventanaDefault()
         return [s.id, v]
       }),

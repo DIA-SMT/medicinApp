@@ -41,6 +41,11 @@ create table if not exists public.sesiones (
 alter table public.alumnos add column if not exists ficticio boolean not null default false;
 alter table public.sesiones add column if not exists ensayo boolean not null default false;
 
+-- Clase suspendida (paro, feriado, asueto): no se puede dar presente y no cuenta para la regularidad, ni como
+-- dictada ni como restante. Es reversible: los presentes que ya hubiera se conservan y vuelven a contar al reanudarla.
+alter table public.sesiones add column if not exists suspendida boolean not null default false;
+alter table public.sesiones add column if not exists motivo_suspension text;
+
 create table if not exists public.sesion_secretos (
   sesion_id text primary key references public.sesiones(id) on delete cascade,
   secreto   text not null default encode(extensions.gen_random_bytes(20), 'hex')
@@ -148,7 +153,9 @@ revoke all on public.alumnos, public.sesiones, public.sesion_secretos, public.di
   public.docentes, public.ajustes, public.intentos_fallidos, public.fallos from anon, authenticated;
 
 grant select on public.sesiones, public.ajustes to anon, authenticated;
-grant update on public.sesiones to authenticated;
+-- Sólo los horarios: suspender una clase pasa por admin_suspender (administradores, con auditoría).
+revoke update on public.sesiones from authenticated;
+grant update (apertura, cierre, manual_desde, manual_hasta, cerrada_en) on public.sesiones to authenticated;
 grant select on public.alumnos to authenticated;
 grant select, insert, update, delete on public.asistencias, public.dispositivos to authenticated;
 
@@ -261,6 +268,7 @@ begin
   if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
   select * into s from sesiones where id = p_sesion;
   if not found then return public._fallo('SESION_INEXISTENTE', null, p_sesion); end if;
+  if s.suspendida then return public._fallo('SUSPENDIDA', s.motivo_suspension, p_sesion); end if;
   if public._estado(s) = 'programada' then return public._fallo('PROGRAMADA', public._ms(public._abre(s))::text, p_sesion); end if;
   if public._estado(s) = 'cerrada' then return public._fallo('CERRADA', public._ms(public._cierra(s))::text, p_sesion); end if;
 
@@ -313,17 +321,18 @@ end $$;
 
 /** Progreso del alumno hacia la regularidad, con la misma regla que el panel: cuentan las clases ya
     dictadas en las que se tomó asistencia (y la que se está dictando, aunque el docente la haya abierto otro día);
-    "restantes" son las de hoy en adelante que todavía no. */
+    "restantes" son las de hoy en adelante que todavía no. Las suspendidas no cuentan para nada. */
 create or replace function public._progreso(p_libreta text, p_sesion text) returns jsonb
 language sql stable set search_path = public as $$
   with hoy as (select (now() at time zone 'America/Argentina/Tucuman')::date d),
   dictadas as (
-    select distinct a.sesion_id from asistencias a join sesiones s on s.id = a.sesion_id, hoy where not s.ensayo and (s.fecha <= hoy.d or s.id = p_sesion)
+    select distinct a.sesion_id from asistencias a join sesiones s on s.id = a.sesion_id, hoy
+    where not s.ensayo and not s.suspendida and (s.fecha <= hoy.d or s.id = p_sesion)
   )
   select jsonb_build_object(
     'presentes', (select count(*) from dictadas d where exists (select 1 from asistencias x where x.sesion_id = d.sesion_id and x.libreta = p_libreta)),
     'dictadas', (select count(*) from dictadas),
-    'restantes', (select count(*) from sesiones s, hoy where not s.ensayo and s.fecha >= hoy.d and s.id not in (select sesion_id from dictadas))
+    'restantes', (select count(*) from sesiones s, hoy where not s.ensayo and not s.suspendida and s.fecha >= hoy.d and s.id not in (select sesion_id from dictadas))
   )
 $$;
 
@@ -339,6 +348,10 @@ begin
   v := public._validar_pase(p_sesion, p_pase);
   if v is null then return public._fallo('CODIGO_INVALIDO', null, p_sesion); end if;
   if v = 'vencido' then return public._fallo('PASE_VENCIDO', null, p_sesion); end if;
+  -- Un pase pedido justo antes de suspender la clase ya no sirve.
+  if (select suspendida from sesiones where id = p_sesion) then
+    return public._fallo('SUSPENDIDA', (select motivo_suspension from sesiones where id = p_sesion), p_sesion);
+  end if;
 
   select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g');
   if not found or (a.ficticio and not public._es_ensayo(p_sesion)) then return public._fallo('DNI_DESCONOCIDO', null, p_sesion); end if;
@@ -416,8 +429,9 @@ begin
     'clases', (
       select jsonb_agg(jsonb_build_object(
         'id', s.id,
-        -- dictada = ya pasó y se tomó asistencia (misma regla que el panel)
-        'dictada', s.fecha <= hoy and exists (select 1 from asistencias t where t.sesion_id = s.id),
+        -- dictada = ya pasó y se tomó asistencia (misma regla que el panel); una suspendida nunca cuenta
+        'dictada', not s.suspendida and s.fecha <= hoy and exists (select 1 from asistencias t where t.sesion_id = s.id),
+        'suspendida', s.suspendida,
         'marca', x.metodo
       ) order by s.fecha)
       from sesiones s left join asistencias x on x.sesion_id = s.id and x.libreta = a.libreta
@@ -575,6 +589,26 @@ begin
   if found then insert into auditoria (accion, cuenta) values ('solicitud_rechazada', e); end if;
 end $$;
 
+/**
+ * Suspende una clase (p_motivo obligatorio) o la reanuda (p_motivo null). Sólo administradores: cambia la
+ * regularidad de todo el curso. Al suspenderla se cierra el registro si estaba abierto.
+ */
+create or replace function public.admin_suspender(p_sesion text, p_motivo text) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin(); s sesiones; m text := nullif(left(trim(coalesce(p_motivo, '')), 200), '');
+begin
+  select * into s from sesiones where id = p_sesion;
+  if not found or s.ensayo then raise exception 'SESION_INEXISTENTE'; end if;
+  if p_motivo is not null and m is null then raise exception 'FALTA_MOTIVO'; end if;
+  if m is not null then
+    update sesiones set suspendida = true, motivo_suspension = m, manual_desde = null, manual_hasta = null where id = p_sesion;
+    insert into auditoria (accion, sesion_id, detalle) values ('clase_suspendida', p_sesion, m);
+  elsif s.suspendida then
+    update sesiones set suspendida = false, motivo_suspension = null where id = p_sesion;
+    insert into auditoria (accion, sesion_id, detalle) values ('clase_reanudada', p_sesion, s.motivo_suspension);
+  end if;
+end $$;
+
 -- Las funciones internas no se exponen por la API, y las de cátedra no las ejecuta el anónimo
 -- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
@@ -586,7 +620,7 @@ from public, anon, authenticated;
 revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
   public.docente_terminar_ensayo(), public.docente_fallos(text, int),
   public.es_admin(), public.admin_cuentas(), public.admin_habilitar(text, text, boolean), public.admin_quitar(text),
-  public.admin_rol(text, text), public.admin_rechazar(text)
+  public.admin_rol(text, text), public.admin_rechazar(text), public.admin_suspender(text, text)
 from public, anon;
 
 grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text), public.mi_asistencia(text, text),
@@ -595,7 +629,7 @@ to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
   public.docente_terminar_ensayo(), public.docente_fallos(text, int),
   public.es_admin(), public.admin_cuentas(), public.admin_habilitar(text, text, boolean), public.admin_quitar(text),
-  public.admin_rol(text, text), public.admin_rechazar(text) to authenticated;
+  public.admin_rol(text, text), public.admin_rechazar(text), public.admin_suspender(text, text) to authenticated;
 
 -- ── Auditoría: quién cargó, quitó o cambió presentes y quién liberó celulares ──
 -- Los presentes por QR no se registran acá (ya tienen hora, método y huella en asistencias): sólo lo manual.
@@ -617,7 +651,8 @@ alter table public.auditoria alter column libreta drop not null;
 alter table public.auditoria drop constraint if exists auditoria_accion_check;
 alter table public.auditoria add constraint auditoria_accion_check check (accion in (
   'presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado',
-  'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_creada', 'clave_cambiada'));
+  'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_creada', 'clave_cambiada',
+  'clase_suspendida', 'clase_reanudada'));
 alter table public.auditoria enable row level security;
 revoke all on public.auditoria from anon, authenticated;
 grant select on public.auditoria to authenticated;

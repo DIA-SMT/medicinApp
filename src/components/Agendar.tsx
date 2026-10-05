@@ -2,13 +2,13 @@ import { CalendarPlus, ChevronDown, Download } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { descargarIcs, enlaceGoogle } from '../lib/agenda'
 import { CRONOGRAMA, type Sesion } from '../lib/cronograma'
-import { hoyIso } from '../lib/time'
+import { hoyIso, suspendida, type Ventana } from '../lib/time'
 
 /**
  * «Agendar»: una clase (Google Calendar o archivo .ics) o todas las que faltan (.ics con recordatorio).
  * Es un <details> nativo: funciona con teclado y sin estado; se cierra al tocar afuera.
  */
-export function Agendar({ sesion, className = '', compacto, derecha }: { sesion?: Sesion; className?: string; compacto?: boolean; derecha?: boolean }) {
+export function Agendar({ sesion, className = '', compacto, derecha, ventanas }: { sesion?: Sesion; className?: string; compacto?: boolean; derecha?: boolean; ventanas?: Record<string, Ventana> | null }) {
   const ref = useRef<HTMLDetailsElement>(null)
   useEffect(() => {
     const fuera = (e: PointerEvent) => ref.current?.open && !ref.current.contains(e.target as Node) && ref.current.removeAttribute('open')
@@ -16,7 +16,8 @@ export function Agendar({ sesion, className = '', compacto, derecha }: { sesion?
     return () => document.removeEventListener('pointerdown', fuera)
   }, [])
 
-  const restantes = CRONOGRAMA.filter((s) => s.fecha >= hoyIso())
+  // Las clases suspendidas no se agendan.
+  const restantes = CRONOGRAMA.filter((s) => s.fecha >= hoyIso() && !suspendida(ventanas, s.id))
   const cerrar = () => ref.current?.removeAttribute('open')
 
   return (

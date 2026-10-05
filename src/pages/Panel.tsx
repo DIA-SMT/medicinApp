@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CalendarOff, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -13,7 +13,7 @@ import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../
 import { huellaCorta } from '../lib/device'
 import { pct, sinTildes } from '../lib/format'
 import { useNow, useVentanas } from '../lib/hooks'
-import { cuenta as cuentaRegresiva, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionVigente, ventanaDefault } from '../lib/time'
+import { clasesVigentes, cuenta as cuentaRegresiva, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionVigente, suspendida, ventanaDefault } from '../lib/time'
 
 type Avisar = (texto: string, deshacer?: () => Promise<unknown> | void) => void
 
@@ -40,11 +40,13 @@ const leerUmbral = () => {
 const etiquetaSesion = (s: Sesion) => `Nº ${String(s.n).padStart(2, '0')} · ${fechaCorta(s.fecha)} · ${s.temas.map((t) => t.titulo).join(' + ')}`
 
 function SelectorSesion({ valor, onCambiar }: { valor: string; onCambiar: (id: string) => void }) {
+  const { ventanas } = useVentanas()
   return (
     <select className="campo !w-auto max-w-full !py-2.5" value={valor} onChange={(e) => onCambiar(e.target.value)}>
       {CRONOGRAMA.map((s) => (
         <option key={s.id} value={s.id}>
           {etiquetaSesion(s)}
+          {suspendida(ventanas, s.id) ? ' (suspendida)' : ''}
         </option>
       ))}
     </select>
@@ -77,7 +79,7 @@ function RecordatorioExportar({ registros, onExportar }: { registros: Registro[]
   const hoy = hoyIso(now)
   const pendiente = [...CRONOGRAMA]
     .reverse()
-    .find((s) => s.fecha <= hoy && registros.some((r) => r.sesionId === s.id) && infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now).estado === 'cerrada' && !exportada(s.id))
+    .find((s) => s.fecha <= hoy && !suspendida(ventanas, s.id) && registros.some((r) => r.sesionId === s.id) && infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now).estado === 'cerrada' && !exportada(s.id))
   if (!pendiente) return null
   const n = registros.filter((r) => r.sesionId === pendiente.id).length
   const hasta = CRONOGRAMA.filter((s) => s.fecha <= pendiente.fecha).map((s) => s.id)
@@ -134,6 +136,7 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
   }, [api, s, esHoy])
   if (!s) return null
   const info = infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now)
+  const suspendidaHoy = CRONOGRAMA.find((x) => x.fecha === hoyIso(now) && suspendida(ventanas, x.id))
   const n = registros.filter((r) => r.sesionId === s.id).length
   const avisos = Object.entries(fallos).sort((a, b) => b[1] - a[1])
   const estado =
@@ -158,6 +161,11 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           <h2 className="mt-2 font-display text-2xl leading-tight font-semibold text-tinta sm:text-3xl">{s.temas.map((t) => t.titulo).join(' + ')}</h2>
           <p className="mt-1 text-sm text-slate-500">{docentesSesion(s)}</p>
           <p className={`mt-3 text-sm font-medium ${info.estado === 'abierta' ? 'text-vital' : 'text-slate-600'}`}>{estado}</p>
+          {suspendidaHoy && (
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-ambar">
+              <CalendarOff className="h-3.5 w-3.5" /> Hoy no hay clase: la del {fechaCorta(suspendidaHoy.fecha)} está suspendida ({ventanas?.[suspendidaHoy.id]?.motivoSuspension}).
+            </p>
+          )}
           {avisos.length > 0 && (
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ambar">
               <TriangleAlert className="h-3.5 w-3.5" /> Avisos de los alumnos hoy:
@@ -266,9 +274,12 @@ export function Panel() {
   }, [umbral])
 
   // Cuentan para regularidad las clases ya dictadas en las que se tomó asistencia
-  // (una carga manual anticipada no vuelve "dictada" a una clase futura).
-  const computables = useMemo(() => CRONOGRAMA.filter((s) => s.fecha <= hoy && registros.some((r) => r.sesionId === s.id)), [registros, hoy])
-  const restantes = CRONOGRAMA.filter((s) => s.fecha >= hoy && !computables.includes(s)).length
+  // (una carga manual anticipada no vuelve "dictada" a una clase futura). Las suspendidas no cuentan.
+  const { ventanas } = useVentanas()
+  const vigentes = useMemo(() => clasesVigentes(ventanas), [ventanas])
+  const computables = useMemo(() => vigentes.filter((s) => s.fecha <= hoy && registros.some((r) => r.sesionId === s.id)), [vigentes, registros, hoy])
+  const restantes = vigentes.filter((s) => s.fecha >= hoy && !computables.includes(s)).length
+  const suspendidas = CRONOGRAMA.length - vigentes.length
 
   const filas: Fila[] = useMemo(() => {
     if (!alumnos) return []
@@ -424,7 +435,7 @@ export function Panel() {
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Kpi etiqueta="Alumnos" valor={alumnos.length} icono={Users} nota="Planilla de regularidades" />
-        <Kpi etiqueta="Clases con registro" valor={computables.length} sufijo={`/ ${CRONOGRAMA.length}`} icono={CalendarCheck} nota={`${restantes} por dictar`} />
+        <Kpi etiqueta="Clases con registro" valor={computables.length} sufijo={`/ ${vigentes.length}`} icono={CalendarCheck} nota={`${restantes} por dictar${suspendidas ? ` · ${suspendidas} suspendida${suspendidas === 1 ? '' : 's'}` : ''}`} />
         <Kpi etiqueta="Asistencia media" valor={promedio} sufijo="%" color="#b3175a" icono={Activity} />
         <Kpi etiqueta="Regulares" valor={cuenta('Regular')} color="#0e9f68" nota={`${cuenta('En riesgo')} en riesgo · ${cuenta('Libre')} libres`} />
         <Kpi etiqueta="Presentes manuales" valor={manuales} color={manuales ? '#6b5cf6' : '#0b1220'} icono={ClipboardList} nota="Cargados por la cátedra" />
@@ -441,17 +452,19 @@ export function Panel() {
             const n = registros.filter((r) => r.sesionId === s.id).length
             const f = alumnos.length ? n / alumnos.length : 0
             const color = AREAS[s.temas[0].area].color
+            const susp = suspendida(ventanas, s.id)
             return (
-              <button key={s.id} onClick={() => ir({ tab: 'clase', s: s.id })} className="group flex h-full flex-1 flex-col items-center justify-end gap-2" title={`${fechaCorta(s.fecha)} · ${s.temas[0].titulo}: ${n} presentes`}>
+              <button key={s.id} onClick={() => ir({ tab: 'clase', s: s.id })} className={`group flex h-full flex-1 flex-col items-center justify-end gap-2 ${susp ? 'opacity-50' : ''}`} title={`${fechaCorta(s.fecha)} · ${s.temas[0].titulo}: ${susp ? 'suspendida' : `${n} presentes`}`}>
                 <span className="font-mono text-[0.65rem] text-slate-500 tabular-nums opacity-0 transition group-hover:opacity-100">{n || ''}</span>
                 <div className="relative w-full flex-1 overflow-hidden rounded-lg border border-dashed border-slate-200 bg-slate-50/60">
                   <div
                     className="absolute inset-x-0 bottom-0 rounded-lg transition-[height] duration-700"
                     style={{ height: `${f * 100}%`, background: `linear-gradient(to top, ${color}66, ${color})` }}
                   />
+                  {susp && <CalendarOff className="absolute inset-x-0 bottom-2 mx-auto h-4 w-4 text-slate-400" />}
                   {sesionSel === s.id && tab === 'clase' && <div className="absolute inset-0 rounded-lg ring-2 ring-tinta/50" />}
                 </div>
-                <span className="font-mono text-[0.6rem] text-slate-400 tabular-nums">{fechaCorta(s.fecha)}</span>
+                <span className={`font-mono text-[0.6rem] text-slate-400 tabular-nums ${susp ? 'line-through' : ''}`}>{fechaCorta(s.fecha)}</span>
               </button>
             )
           })}
@@ -578,7 +591,7 @@ export function Panel() {
 
       {tab === 'manual' && <CargaManual sesionId={sesionSel} onSesion={(s) => ir({ s })} alumnos={alumnos} registros={registros} recargar={cargar} avisar={mostrar} />}
 
-      {tab === 'clase' && <DetalleClase sesion={sesionPorId(sesionSel)!} alumnos={alumnos} registros={registros} onCambiar={(s) => ir({ s })} recargar={cargar} avisar={mostrar} />}
+      {tab === 'clase' && <DetalleClase esAdmin={esAdmin} sesion={sesionPorId(sesionSel)!} alumnos={alumnos} registros={registros} onCambiar={(s) => ir({ s })} recargar={cargar} avisar={mostrar} />}
 
       {tab === 'dispositivos' && (
         <div className="tarjeta hud mt-4 p-5">
@@ -968,6 +981,8 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   cuenta_creada: { texto: 'Cuenta creada', color: '#0e9f68' },
   clave_cambiada: { texto: 'Contraseña cambiada', color: '#c27c03' },
   solicitud_rechazada: { texto: 'Pedido rechazado', color: '#e0246f' },
+  clase_suspendida: { texto: 'Clase suspendida', color: '#c27c03' },
+  clase_reanudada: { texto: 'Clase reanudada', color: '#0e9f68' },
 }
 
 /** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */
@@ -1193,7 +1208,109 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar, avisar 
   )
 }
 
-function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar, avisar }: { sesion: Sesion; alumnos: Alumno[]; registros: Registro[]; onCambiar: (id: string) => void; recargar: () => void; avisar: Avisar }) {
+const MOTIVOS_SUSPENSION = ['Paro docente', 'Feriado o asueto', 'Clase reprogramada']
+
+/**
+ * Suspender una clase (paro, feriado…): no se toma asistencia y no cuenta para la regularidad de nadie.
+ * Sólo administradores; los demás ven el aviso. Es reversible: los presentes que hubiera se conservan.
+ */
+function SuspensionClase({ sesion, esAdmin, presentes, avisar }: { sesion: Sesion; esAdmin: boolean; presentes: number; avisar: Avisar }) {
+  const api = useAdmin()
+  const { ventanas, recargar } = useVentanas()
+  const v = ventanas?.[sesion.id]
+  const [abierto, setAbierto] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  useEffect(() => {
+    setAbierto(false)
+    setMotivo('')
+  }, [sesion.id])
+
+  const aplicar = async (m: string | null) => {
+    setOcupado(true)
+    try {
+      await api.suspenderClase(sesion.id, m)
+      recargar()
+      // Que se enteren las demás partes del panel (contadores, barras, clase de hoy).
+      window.dispatchEvent(new Event('ciclo:cambio'))
+      setAbierto(false)
+      setMotivo('')
+      avisar(m ? `Clase del ${fechaCorta(sesion.fecha)} suspendida: ya no cuenta para la regularidad.` : `Clase del ${fechaCorta(sesion.fecha)} reanudada: vuelve a contar.`)
+    } catch (e) {
+      avisar(String((e as Error).message ?? e))
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  if (!v) return null
+  if (v.suspendida)
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-b border-ambar/30 bg-ambar-suave px-4 py-3">
+        <CalendarOff className="h-5 w-5 shrink-0 text-ambar" />
+        <div className="min-w-0 flex-1 text-sm">
+          <span className="font-semibold text-tinta">Clase suspendida</span>
+          <span className="text-slate-600"> · {v.motivoSuspension}. No se puede dar presente y no cuenta para la regularidad.</span>
+          {presentes > 0 && (
+            <span className="block text-xs text-slate-500">
+              {presentes === 1 ? 'El presente que tenía se guarda' : `Los ${presentes} presentes que tenía se guardan`}: si la reanudás, vuelve{presentes === 1 ? '' : 'n'} a contar.
+            </span>
+          )}
+        </div>
+        {esAdmin && (
+          <button className="btn btn-secundario !py-1.5 !text-xs" disabled={ocupado} onClick={() => confirm(`¿Reanudar la clase del ${fechaCorta(sesion.fecha)}? Vuelve a contar para la regularidad.`) && aplicar(null)}>
+            Reanudar la clase
+          </button>
+        )}
+      </div>
+    )
+  if (!esAdmin) return null
+  if (!abierto)
+    return (
+      <div className="flex justify-end border-b border-linea px-4 py-2">
+        <button className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-ambar" onClick={() => setAbierto(true)}>
+          <CalendarOff className="h-3.5 w-3.5" /> Suspender esta clase
+        </button>
+      </div>
+    )
+  return (
+    <form
+      className="entrada space-y-3 border-b border-ambar/30 bg-ambar-suave/60 p-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (motivo.trim()) aplicar(motivo)
+      }}
+    >
+      <div>
+        <div className="etiqueta flex items-center gap-1.5 !text-ambar">
+          <CalendarOff className="h-3.5 w-3.5" /> Suspender la clase del {diaSemana(sesion.fecha).toLowerCase()} {fechaCorta(sesion.fecha)}
+        </div>
+        <p className="mt-1 text-sm text-slate-600">
+          No se va a poder dar presente y deja de contar para la regularidad de todos: ni como dictada ni como clase por venir. Los alumnos ven el motivo en la app.
+          {presentes > 0 && (presentes === 1 ? ' Tiene 1 presente: se guarda, pero no cuenta mientras esté suspendida.' : ` Tiene ${presentes} presentes: se guardan, pero no cuentan mientras esté suspendida.`)}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {MOTIVOS_SUSPENSION.map((m) => (
+          <button key={m} type="button" onClick={() => setMotivo(m)} className={`rounded-full border px-3 py-1 text-xs transition ${motivo === m ? 'border-ambar bg-white font-semibold text-ambar' : 'border-linea bg-white text-slate-600'}`}>
+            {m}
+          </button>
+        ))}
+      </div>
+      <input className="campo" placeholder="Motivo (lo ven los alumnos)" maxLength={200} value={motivo} onChange={(e) => setMotivo(e.target.value)} required />
+      <div className="flex gap-2">
+        <button className="btn btn-primario !py-2" disabled={ocupado || !motivo.trim()}>
+          {ocupado ? 'Suspendiendo…' : 'Suspender la clase'}
+        </button>
+        <button type="button" className="btn btn-secundario !py-2" onClick={() => setAbierto(false)}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar, avisar }: { esAdmin: boolean; sesion: Sesion; alumnos: Alumno[]; registros: Registro[]; onCambiar: (id: string) => void; recargar: () => void; avisar: Avisar }) {
   const api = useAdmin()
   const [verAusentes, setVerAusentes] = useState(false)
   const regs = registros.filter((r) => r.sesionId === sesion.id).sort((a, b) => a.marcadoEn - b.marcadoEn)
@@ -1225,6 +1342,7 @@ function DetalleClase({ sesion, alumnos, registros, onCambiar, recargar, avisar 
 
   return (
     <div className="tarjeta hud mt-4">
+      <SuspensionClase sesion={sesion} esAdmin={esAdmin} presentes={regs.length} avisar={avisar} />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linea p-4">
         <SelectorSesion valor={sesion.id} onCambiar={onCambiar} />
         <div className="flex items-center gap-2">

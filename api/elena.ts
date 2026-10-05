@@ -50,7 +50,7 @@ async function hayCupo(ip: string) {
 
 async function sesiones(): Promise<FilaSesion[] | null> {
   try {
-    const r = await supabase('/sesiones?select=id,apertura,cierre,manual_desde,manual_hasta,cerrada_en')
+    const r = await supabase('/sesiones?select=id,apertura,cierre,manual_desde,manual_hasta,cerrada_en,suspendida,motivo_suspension')
     return r.ok ? ((await r.json()) as FilaSesion[]) : null
   } catch {
     return null

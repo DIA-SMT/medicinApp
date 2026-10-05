@@ -40,6 +40,8 @@ export function crearSupabaseAdmin(): AdminApi {
     ULTIMO_ADMIN: 'Tiene que quedar al menos un administrador con cuenta activa.',
     YA_HABILITADA: 'Esa cuenta ya está habilitada: si querés, quitale el acceso.',
     NO_AUTORIZADO: 'Sólo un administrador puede hacer esto.',
+    FALTA_MOTIVO: 'Escribí el motivo de la suspensión (los alumnos lo van a ver).',
+    SESION_INEXISTENTE: 'Esa clase no existe en el cronograma.',
   }
   async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await sb.rpc(fn, args)
@@ -193,6 +195,7 @@ export function crearSupabaseAdmin(): AdminApi {
     quitarCuenta: (email) => rpc<void>('admin_quitar', { p_email: email }),
     cambiarRol: (email, rol) => rpc<void>('admin_rol', { p_email: email, p_rol: rol }),
     rechazar: (email) => rpc<void>('admin_rechazar', { p_email: email }),
+    suspenderClase: (sesionId, motivo) => rpc<void>('admin_suspender', { p_sesion: sesionId, p_motivo: motivo }),
 
     // Crear cuentas y cambiar contraseñas necesita la llave de servicio: lo hace la Edge Function «admin-cuentas»,
     // que primero comprueba con el token de quien llama que sea administrador.

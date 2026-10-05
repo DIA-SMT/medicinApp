@@ -306,5 +306,52 @@ ok(['cuenta_habilitada', 'cuenta_confirmada', 'rol_cambiado', 'solicitud_rechaza
 await db.exec(`select set_config('request.jwt.claims', '', false)`)
 ok((await error('select admin_cuentas()'))?.includes('NO_AUTORIZADO'), 'sin sesión no se ve nada de las cuentas')
 
+// ── Suspender una clase ──
+ok((await error(`select admin_suspender('${SIDR}', 'Paro')`))?.includes('NO_AUTORIZADO'), 'sin sesión no se suspende nada')
+await comoCatedra()
+await db.exec(`update docentes set rol = 'docente' where email = 'catedra@ejemplo.edu.ar'`)
+ok((await error(`select admin_suspender('${SIDR}', 'Paro')`))?.includes('NO_AUTORIZADO'), 'un docente sin rol de administrador no suspende clases')
+await db.exec(`update docentes set rol = 'admin' where email = 'catedra@ejemplo.edu.ar'`)
+ok((await error(`select admin_suspender('${SIDR}', '   ')`))?.includes('FALTA_MOTIVO'), 'suspender exige un motivo')
+ok((await error(`select admin_suspender('ensayo', 'Paro')`))?.includes('SESION_INEXISTENTE'), 'el ensayo no se suspende')
+ok(
+  (await one(`select has_column_privilege('authenticated', 'public.sesiones', 'suspendida', 'UPDATE') a, has_column_privilege('authenticated', 'public.sesiones', 'cerrada_en', 'UPDATE') b`)).a === false,
+  'la cátedra edita horarios, pero suspender sólo pasa por la función de administradores',
+)
+await db.exec('delete from intentos_fallidos')
+const paseAntes = (await pE(SIDR)).pase
+const progAntes = (await one(`select public._progreso('MD0000001', null) p`)).p
+await one(`select admin_suspender('${SIDR}', '  Paro docente  ')`)
+const susp = await one(`select suspendida, motivo_suspension m, manual_hasta from sesiones where id = '${SIDR}'`)
+ok(susp.suspendida && susp.m === 'Paro docente' && susp.manual_hasta === null, 'suspender guarda el motivo y cierra el registro abierto', susp)
+r = (await one('select abrir_pase($1,$2) r', [SIDR, '123456'])).r
+ok(!r.ok && r.error === 'SUSPENDIDA' && r.detalle === 'Paro docente', 'clase suspendida → SUSPENDIDA con el motivo', r)
+r = await marcarE(SIDR, paseAntes, '10000001', huellaE, jwkE)
+ok(!r.ok && r.error === 'SUSPENDIDA', 'un pase pedido antes de suspender ya no sirve', r.error)
+const progSusp = (await one(`select public._progreso('MD0000001', null) p`)).p
+ok(progSusp.restantes === progAntes.restantes - 1 && progSusp.dictadas === progAntes.dictadas, 'la suspendida no cuenta para la regularidad', { progAntes, progSusp })
+// Una clase con presentes que después se suspende: los presentes se conservan pero no cuentan.
+await db.exec(`insert into asistencias (sesion_id, libreta, metodo, motivo) values ('2026-09-30', 'MD0000001', 'manual', 'Prueba')`)
+const conPasada = (await one(`select public._progreso('MD0000001', null) p`)).p
+await one(`select admin_suspender('2026-09-30', 'Asueto')`)
+const sinPasada = (await one(`select public._progreso('MD0000001', null) p`)).p
+ok(sinPasada.dictadas === conPasada.dictadas - 1 && sinPasada.presentes === conPasada.presentes - 1, 'una clase dictada que se suspende deja de contar', { conPasada, sinPasada })
+ok((await one(`select count(*)::int n from asistencias where sesion_id = '2026-09-30'`)).n === 1, 'sus presentes se conservan')
+await q(`insert into dispositivos (huella, libreta, public_jwk) values ($1, 'MD0000001', $2::jsonb)`, [huellaE, JSON.stringify(jwkE)])
+mia = (await one('select mi_asistencia($1,$2) r', ['10000001', huellaE])).r
+const cS = mia.clases.find((c) => c.id === SIDR)
+const cP = mia.clases.find((c) => c.id === '2026-09-30')
+ok(cS.suspendida && cP.suspendida && !cP.dictada, '«Mi asistencia» marca las clases suspendidas', { cS, cP })
+await one(`select admin_suspender('2026-09-30', null)`)
+const reanudada = await one(`select suspendida, motivo_suspension m from sesiones where id = '2026-09-30'`)
+ok(!reanudada.suspendida && reanudada.m === null && (await one(`select public._progreso('MD0000001', null) p`)).p.dictadas === conPasada.dictadas, 'reanudar la clase la vuelve a contar, con sus presentes', reanudada)
+const audClases = await q(`select accion, sesion_id, detalle, por from auditoria where accion like 'clase_%' order by id`)
+ok(
+  audClases.length === 3 && audClases[0].accion === 'clase_suspendida' && audClases[0].detalle === 'Paro docente' && audClases[2].accion === 'clase_reanudada' && audClases.every((a) => a.por === 'Catedra@Ejemplo.edu.ar'),
+  'suspender y reanudar quedan en el historial con autor',
+  audClases.map((a) => a.accion),
+)
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)
