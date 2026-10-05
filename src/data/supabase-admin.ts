@@ -130,14 +130,16 @@ export function crearSupabaseAdmin(): AdminApi {
       }
     },
 
-    alumnos: () => todas<Alumno>('alumnos', 'libreta, nombre, dni, folio, orden'),
+    // Los DNIs de prueba del ensayo no son alumnos: no van a la planilla.
+    alumnos: async () => (await todas<Alumno & { ficticio: boolean }>('alumnos', 'libreta, nombre, dni, folio, orden, ficticio')).filter((a) => !a.ficticio).map(({ ficticio: _, ...a }) => a),
 
     async registros() {
       type Fila = {
         sesion_id: string; libreta: string; marcado_en: string; metodo: Registro['metodo']; distancia_m: number | null
         precision_m: number | null; huella: string | null; motivo: string | null; cargado_por: string | null; alumnos: { nombre: string } | null
       }
-      const filas = await todas<Fila>('asistencias', 'sesion_id, libreta, marcado_en, metodo, distancia_m, precision_m, huella, motivo, cargado_por, alumnos(nombre)')
+      // Lo hecho en la clase de ensayo no cuenta: no entra a la planilla ni a los indicadores.
+      const filas = (await todas<Fila>('asistencias', 'sesion_id, libreta, marcado_en, metodo, distancia_m, precision_m, huella, motivo, cargado_por, alumnos(nombre)')).filter((f) => f.sesion_id !== 'ensayo')
       return filas.map((f) => ({
         sesionId: f.sesion_id, libreta: f.libreta, nombre: f.alumnos?.nombre ?? f.libreta, marcadoEn: Date.parse(f.marcado_en),
         metodo: f.metodo, distanciaM: f.distancia_m, precisionM: f.precision_m, huella: f.huella, motivo: f.motivo, cargadoPor: f.cargado_por,
@@ -168,6 +170,10 @@ export function crearSupabaseAdmin(): AdminApi {
       const { error } = await sb.from('dispositivos').delete().eq('libreta', libreta)
       if (error) throw new Error(error.message)
     },
+
+    terminarEnsayo: () => rpc<number>('docente_terminar_ensayo', {}),
+
+    fallos: (sesionId) => rpc<{ recientes: Record<string, number>; total: Record<string, number> }>('docente_fallos', { p_sesion: sesionId }),
 
     async auditoria() {
       const { data, error } = await sb.from('auditoria').select('en, por, accion, sesion_id, libreta, detalle').order('en', { ascending: false }).limit(300)

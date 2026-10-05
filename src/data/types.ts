@@ -139,6 +139,10 @@ export interface AdminApi {
   quitarPresente(sesionId: string, libretas: string[]): Promise<void>
   dispositivos(): Promise<DispositivoVinculado[]>
   liberarDispositivo(libreta: string): Promise<void>
+  /** Borra los presentes y fallos de la clase de ensayo y la cierra. Devuelve cuántos presentes borró. */
+  terminarEnsayo(): Promise<number>
+  /** Errores que vieron los alumnos en una clase (sólo el código): de los últimos 10 minutos y en total. */
+  fallos(sesionId: string): Promise<{ recientes: Record<string, number>; total: Record<string, number> }>
   /** Últimos cambios manuales: presentes cargados o quitados y celulares liberados. */
   auditoria(): Promise<EventoAuditoria[]>
 

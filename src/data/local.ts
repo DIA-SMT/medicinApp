@@ -280,6 +280,20 @@ export function crearLocal(): PublicoApi & AdminApi {
       auditar({ accion: 'celular_liberado', sesionId: null, libreta, detalle: null })
     },
 
+    async terminarEnsayo() {
+      const regs = leer<Registro[]>(K.registros, [])
+      const quedan = regs.filter((r) => r.sesionId !== 'ensayo')
+      escribir(K.registros, quedan)
+      const v = leer<Record<string, Ventana>>(K.ventanas, {})
+      delete v.ensayo
+      escribir(K.ventanas, v)
+      return regs.length - quedan.length
+    },
+
+    async fallos() {
+      return { recientes: {}, total: {} }
+    },
+
     async auditoria() {
       return leer<EventoAuditoria[]>(K.auditoria, [])
     },

@@ -28,9 +28,9 @@ await db.exec(`
 await db.exec(fs.readFileSync(`${ROOT}/supabase/schema.sql`, 'utf8'))
 await db.exec(fs.readFileSync(`${ROOT}/supabase/seed.sql`, 'utf8'))
 ok(true, 'schema.sql + seed.sql ejecutan sin errores')
-ok((await one('select count(*)::int n from alumnos')).n === 195, 'padrón: 195 alumnos')
-ok((await one('select count(*)::int n from sesiones')).n === 12, 'cronograma: 12 sesiones')
-ok((await one('select count(*)::int n from sesion_secretos')).n === 12, 'una semilla por sesión')
+ok((await one('select count(*)::int n from alumnos where not ficticio')).n === 195, 'padrón: 195 alumnos (más 5 DNIs de prueba para ensayos)')
+ok((await one('select count(*)::int n from sesiones where not ensayo')).n === 12, 'cronograma: 12 sesiones (más la clase de ensayo)')
+ok((await one('select count(*)::int n from sesion_secretos')).n === 13, 'una semilla por sesión')
 
 // Alumnos ficticios para las pruebas
 await db.exec(`insert into alumnos values ('MD0000001','Demo, Alumna De Prueba','10000001','000',0), ('MD0000002','Test, Segundo Alumno','10000002','000',0)`)
@@ -199,6 +199,72 @@ for (let i = 0; i < 21; i++) if ((await one(`select elena_cupo('203.0.113.7') ok
 ok(permitidas === 20, 'Elena: 20 preguntas cada 10 min por IP', permitidas)
 ok((await one(`select elena_cupo('203.0.113.8') ok`)).ok === true, 'Elena: otra IP tiene su propio cupo')
 ok((await one(`select count(*)::int n from elena_uso where ip_hash like '203.%'`)).n === 0, 'Elena: la IP se guarda con hash')
+
+// ── Clase de ensayo y DNIs de prueba ──
+await db.exec('delete from intentos_fallidos')
+const secE = (await one(`select secreto from sesion_secretos where sesion_id = 'ensayo'`)).secreto
+const pE = async (sid) => {
+  const s = sid === 'ensayo' ? secE : (await one('select secreto from sesion_secretos where sesion_id = $1', [sid])).secreto
+  return (await one('select abrir_pase($1,$2) r', [sid, await totpJs(s, await contador())])).r
+}
+r = await pE('ensayo')
+ok(!r.ok && r.error === 'CERRADA', 'la clase de ensayo está cerrada hasta que la abre un docente', r.error)
+await db.exec(`update sesiones set manual_desde = now(), manual_hasta = now() + interval '10 minutes' where id = 'ensayo'`)
+r = await pE('ensayo')
+ok(r.ok, 'clase de ensayo abierta → pase')
+const paseE = r.pase
+const parE = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+const jwkE = await crypto.subtle.exportKey('jwk', parE.publicKey)
+const huellaE = toHex(await crypto.subtle.digest('SHA-256', enc.encode(`${jwkE.x}.${jwkE.y}`)))
+const marcarE = (sid, pase, dni, h, j) => one('select marcar_presente($1,$2,$3,$4,$5::jsonb,$6,$7::bigint) r', [sid, pase, dni, h, JSON.stringify(j), 'f', Date.now()]).then((x) => x.r)
+r = (await one('select identificar($1,$2,$3,$4) r', ['ensayo', paseE, '1.000.001', huellaE])).r
+ok(r.ok && r.vinculo === 'libre' && r.nombre === 'Ensayo, A.', 'DNI de prueba en el ensayo → se identifica', r)
+r = await marcarE('ensayo', paseE, '1000001', huellaE, jwkE)
+ok(r.ok && r.estado === 'REGISTRADO', 'DNI de prueba en el ensayo → presente', r.estado)
+ok((await one(`select count(*)::int n from dispositivos where huella = $1`, [huellaE])).n === 0, 'el DNI de prueba no vincula el celular')
+r = await marcarE('ensayo', paseE, '1000002', huellaE, jwkE)
+ok(r.ok && r.estado === 'REGISTRADO', 'el mismo celular puede probar con otro DNI de prueba')
+// Un celular ya vinculado a un alumno real puede usar un DNI de prueba en el ensayo
+r = await marcarE('ensayo', paseE, '1000003', huella2, jwk2)
+ok(r.ok, 'celular de un alumno real con DNI de prueba en el ensayo → presente, sin tocar su vínculo')
+ok((await one(`select libreta from dispositivos where huella = $1`, [huella2])).libreta === 'MD0000002', 'su vínculo real sigue intacto')
+// En una clase real los DNIs de prueba no existen
+const SIDR = '2026-10-14'
+await db.exec(`update sesiones set manual_desde = now(), manual_hasta = now() + interval '10 minutes' where id = '${SIDR}'`)
+r = await pE(SIDR)
+r = (await one('select identificar($1,$2,$3,$4) r', [SIDR, r.pase, '1000001', huellaE])).r
+ok(!r.ok && r.error === 'DNI_DESCONOCIDO', 'DNI de prueba en una clase real → DNI_DESCONOCIDO')
+// El ensayo no cuenta para la regularidad ni para «Mi asistencia»
+const prog = (await one(`select public._progreso('MD0000001', null) p`)).p
+ok(prog.dictadas + prog.restantes <= 12, 'el ensayo no cuenta para la regularidad', prog)
+ok((await one(`select count(*)::int n from auditoria where sesion_id = 'ensayo'`)).n === 0, 'el ensayo no deja rastro en la auditoría')
+
+// ── Fallos en vivo ──
+const fJson = async (sid) => {
+  await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
+  const x = (await one('select docente_fallos($1) f', [sid])).f
+  await db.exec(`select set_config('request.jwt.claims', '', false)`)
+  return x
+}
+await one('select abrir_pase($1,$2) r', ['ensayo', '000000'])
+await one('select abrir_pase($1,$2) r', ['ensayo', '000000'])
+const f = await fJson('ensayo')
+ok(f.recientes.CODIGO_INVALIDO === 2 && f.total.CODIGO_INVALIDO === 2, 'fallos en vivo: se cuentan por clase y código', f)
+ok((await one('select count(*)::int n from fallos where codigo is null or sesion_id is null')).n === 0, 'fallos: sólo clase y código (sin DNI ni IP)')
+let errDoc = null
+try {
+  await one('select docente_fallos($1)', ['ensayo'])
+} catch (e) {
+  errDoc = e.message
+}
+ok(errDoc && errDoc.includes('NO_AUTORIZADO'), 'fallos: sólo la cátedra los ve')
+
+// ── Terminar ensayo ──
+await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
+const borrados = (await one('select docente_terminar_ensayo() n')).n
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
+ok(borrados === 3 && (await one(`select count(*)::int n from asistencias where sesion_id = 'ensayo'`)).n === 0, 'terminar ensayo borra sus presentes', borrados)
+ok((await one(`select count(*)::int n from fallos where sesion_id = 'ensayo'`)).n === 0 && (await one(`select manual_hasta from sesiones where id = 'ensayo'`)).manual_hasta === null, 'terminar ensayo borra los fallos y cierra la clase')
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)

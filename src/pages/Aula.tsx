@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Camera, CircleCheck, Clock, Download, ExternalLink, IdCard, Lock, Maximize, Minimize, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { EcgLine } from '../components/EcgLine'
@@ -8,12 +8,24 @@ import { ChipArea, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { ResumenSesion } from '../data/types'
 import { TOTP_PASO_S } from '../lib/config'
-import { CRONOGRAMA, docentesSesion, sesionPorId } from '../lib/cronograma'
+import { CRONOGRAMA, DNIS_ENSAYO, docentesSesion, sesionPorId } from '../lib/cronograma'
 import { enlaceRegistro } from '../lib/enlaces'
 import { nombreCorto, pct } from '../lib/format'
 import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
 import { cuenta, diaSemana, fechaCorta, hmArt, horaArt, infoVentana, sesionActual, ventanaDefault, type Ventana } from '../lib/time'
 import { contador, segundosRestantes, totp } from '../lib/totp'
+
+/** Qué significa cada error que ven los alumnos y qué puede hacer el docente. */
+const FALLOS: Record<string, [string, string]> = {
+  CODIGO_INVALIDO: ['Código vencido', 'Escanean un QR viejo o una foto. Que escaneen el de la pantalla.'],
+  PASE_VENCIDO: ['Tardaron más de 3 min', 'Que vuelvan a escanear.'],
+  DNI_DESCONOCIDO: ['DNI no encontrado', 'Error al escribirlo o alumno fuera del padrón.'],
+  DISPOSITIVO_OCUPADO: ['Celular de otra persona', 'Comparten celular o quisieron dar presente por otro.'],
+  DISPOSITIVO_AJENO: ['Cambió de celular', 'Liberá el anterior en Panel → Dispositivos o presente manual.'],
+  FIRMA_INVALIDA: ['Hora del celular mal', 'Que pongan fecha y hora automáticas.'],
+  PROGRAMADA: ['Escanearon antes de abrir', 'El registro abre a la hora programada.'],
+  CERRADA: ['Escanearon con el registro cerrado', 'Si están en clase: «+5 min» o presente manual.'],
+}
 
 const PASOS_ALUMNO = [
   { icono: Camera, texto: 'Escaneá el QR con la cámara' },
@@ -101,6 +113,8 @@ export function Aula() {
   const [resumen, setResumen] = useState<ResumenSesion | null>(null)
   const [latido, setLatido] = useState(0)
   const previos = useRef(0)
+  // Errores que vieron los alumnos en los últimos 10 minutos (sólo el tipo, sin datos personales).
+  const [fallos, setFallos] = useState<Record<string, number>>({})
   const cargar = useCallback(() => {
     api
       .resumen(sesion.id)
@@ -110,7 +124,23 @@ export function Aula() {
         setResumen(r)
       })
       .catch(() => {})
+    api
+      .fallos(sesion.id)
+      .then((f) => setFallos(f.recientes))
+      .catch(() => {})
   }, [api, sesion.id])
+  const [terminando, setTerminando] = useState(false)
+  const terminarEnsayo = async () => {
+    if (!confirm('¿Terminar el ensayo? Se borran los presentes y avisos de la clase de ensayo y queda cerrada.')) return
+    setTerminando(true)
+    try {
+      await api.terminarEnsayo()
+      recargar()
+      cargar()
+    } finally {
+      setTerminando(false)
+    }
+  }
   useEffect(() => {
     previos.current = 0
     cargar()
@@ -172,6 +202,7 @@ export function Aula() {
           </div>
         </div>
         <select value={sesion.id} onChange={(e) => navigate(`/aula/${e.target.value}`)} className="campo !w-auto max-w-[15rem] !py-2 font-mono text-xs" aria-label="Elegir clase">
+          <option value="ensayo">Ensayo · no cuenta para la regularidad</option>
           {CRONOGRAMA.map((s) => (
             <option key={s.id} value={s.id}>
               Nº {String(s.n).padStart(2, '0')} · {fechaCorta(s.fecha)} · {s.temas[0].titulo.slice(0, 32)}
@@ -193,6 +224,20 @@ export function Aula() {
           <span className="font-mono text-2xl font-semibold text-tinta tabular-nums lg:text-3xl">{horaArt(now)}</span>
         </div>
       </header>
+
+      {sesion.ensayo && (
+        <div className="no-print flex flex-wrap items-center gap-3 border-b border-ambar/30 bg-ambar-suave px-4 py-2.5 text-sm lg:px-8">
+          <TriangleAlert className="h-4 w-4 shrink-0 text-ambar" />
+          <p className="min-w-0 flex-1 text-slate-700">
+            <b className="text-tinta">Clase de ensayo:</b> no cuenta para la regularidad. Abrila con «Abrir ahora», escaneá con celulares reales y usá un DNI de
+            prueba (<span className="font-mono">{DNIS_ENSAYO[0]}</span> a <span className="font-mono">{DNIS_ENSAYO[DNIS_ENSAYO.length - 1]}</span>): no vinculan el
+            celular. También sirve el DNI de un alumno real.
+          </p>
+          <button className="btn btn-secundario !py-1.5 !text-xs" onClick={terminarEnsayo} disabled={terminando}>
+            {terminando ? 'Borrando…' : 'Terminar ensayo y borrar'}
+          </button>
+        </div>
+      )}
 
       <main className="grid flex-1 gap-6 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[auto_1fr] lg:gap-10 lg:overflow-hidden lg:p-8">
         {/* ── QR ── */}
@@ -338,6 +383,27 @@ export function Aula() {
               <EcgLine key={latido} latidos={5} duracion={2.2} color="#0e9f68" className="relative mt-3 h-8 w-full" />
             </div>
           </div>
+
+          {/* Avisos para el docente: qué errores están viendo los alumnos ahora */}
+          {Object.keys(fallos).length > 0 && (
+            <div className="no-print tarjeta border-ambar/40 p-4">
+              <div className="etiqueta flex items-center gap-1.5 !text-ambar">
+                <TriangleAlert className="h-3.5 w-3.5" /> Avisos de los alumnos · últimos 10 min
+              </div>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {Object.entries(fallos)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 4)
+                  .map(([codigo, n]) => (
+                    <li key={codigo} className="flex items-baseline gap-2">
+                      <span className="rounded-md bg-ambar-suave px-1.5 font-mono text-xs font-semibold text-ambar tabular-nums">×{n}</span>
+                      <span className="font-medium text-tinta">{FALLOS[codigo]?.[0] ?? codigo}</span>
+                      <span className="hidden text-xs text-slate-500 xl:inline">· {FALLOS[codigo]?.[1]}</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
 
           {/* Lo que leen los alumnos desde el fondo del aula */}
           {abierta && (

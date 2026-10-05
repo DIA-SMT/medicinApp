@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CircleCheck, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CircleCheck, FlaskConical, TriangleAlert, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -104,14 +104,36 @@ function RecordatorioExportar({ registros, onExportar }: { registros: Registro[]
 }
 
 /** Lo primero que ve el docente: qué clase toca, cómo está el registro y los accesos para esa clase. */
+const NOMBRE_FALLO: Record<string, string> = {
+  CODIGO_INVALIDO: 'código vencido',
+  PASE_VENCIDO: 'tardaron más de 3 min',
+  DNI_DESCONOCIDO: 'DNI no encontrado',
+  DISPOSITIVO_OCUPADO: 'celular de otra persona',
+  DISPOSITIVO_AJENO: 'cambió de celular',
+  FIRMA_INVALIDA: 'hora del celular mal',
+  PROGRAMADA: 'antes de abrir',
+  CERRADA: 'con el registro cerrado',
+}
+
 function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro[]; total: number; onManual: (id: string) => void; onVer: (id: string) => void }) {
+  const api = useAdmin()
   const now = useNow(1000)
   const { ventanas } = useVentanas()
   const s = sesionVigente(ventanas, now)
+  const esHoy = !!s && s.fecha === hoyIso(now)
+  // Avisos de los alumnos de hoy (sólo el tipo de error), cada 20 s.
+  const [fallos, setFallos] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!s || !esHoy) return
+    const leer = () => api.fallos(s.id).then((f) => setFallos(f.total)).catch(() => {})
+    leer()
+    const t = setInterval(leer, 20_000)
+    return () => clearInterval(t)
+  }, [api, s, esHoy])
   if (!s) return null
   const info = infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now)
-  const esHoy = s.fecha === hoyIso(now)
   const n = registros.filter((r) => r.sesionId === s.id).length
+  const avisos = Object.entries(fallos).sort((a, b) => b[1] - a[1])
   const estado =
     info.estado === 'abierta'
       ? `Registro abierto: cierra a las ${hmArt(info.cierra)} (en ${cuentaRegresiva(info.cierra - now)}). Los presentes se suman solos.`
@@ -134,6 +156,16 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           <h2 className="mt-2 font-display text-2xl leading-tight font-semibold text-tinta sm:text-3xl">{s.temas.map((t) => t.titulo).join(' + ')}</h2>
           <p className="mt-1 text-sm text-slate-500">{docentesSesion(s)}</p>
           <p className={`mt-3 text-sm font-medium ${info.estado === 'abierta' ? 'text-vital' : 'text-slate-600'}`}>{estado}</p>
+          {avisos.length > 0 && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ambar">
+              <TriangleAlert className="h-3.5 w-3.5" /> Avisos de los alumnos hoy:
+              {avisos.map(([codigo, cant]) => (
+                <span key={codigo} className="rounded-full bg-ambar-suave px-2 py-0.5 font-medium">
+                  {NOMBRE_FALLO[codigo] ?? codigo} ×{cant}
+                </span>
+              ))}
+            </p>
+          )}
         </div>
         {(esHoy || n > 0) && (
           <div className="flex items-baseline gap-2 lg:flex-col lg:items-end lg:gap-0">
@@ -160,6 +192,9 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
         <button className="btn btn-secundario" onClick={() => onVer(s.id)}>
           <ListChecks className="h-4 w-4 text-cian" /> Lista de la clase
         </button>
+        <Link to="/aula/ensayo" className="btn btn-secundario sm:ml-auto" title="Probar el circuito completo con celulares reales, sin que cuente para la regularidad">
+          <FlaskConical className="h-4 w-4 text-ambar" /> Hacer un ensayo
+        </Link>
       </div>
     </div>
   )

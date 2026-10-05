@@ -35,6 +35,8 @@ export interface Sesion {
   fecha: string
   temas: Tema[]
   parcial?: string
+  /** Clase de prueba: no cuenta para la regularidad (ver SESION_ENSAYO). */
+  ensayo?: boolean
 }
 
 export const CRONOGRAMA: Sesion[] = [
@@ -91,6 +93,20 @@ export const CRONOGRAMA: Sesion[] = [
   },
 ]
 
-export const sesionPorId = (id: string) => CRONOGRAMA.find((s) => s.id === id)
+/**
+ * Clase de ensayo: para probar el circuito completo (proyector, celulares, panel) antes de una clase real.
+ * Se abre a mano desde el proyector; no cuenta para la regularidad y se borra con «Terminar ensayo».
+ */
+export const SESION_ENSAYO: Sesion = {
+  id: 'ensayo',
+  n: 0,
+  fecha: '2026-01-01',
+  ensayo: true,
+  temas: [{ titulo: 'Clase de ensayo', detalle: 'No cuenta para la regularidad', docente: 'Cátedra de Ginecología', area: 'endocrino' }],
+}
+/** DNIs de prueba para el ensayo: no vinculan el celular y sólo funcionan en la clase de ensayo. */
+export const DNIS_ENSAYO = ['1.000.001', '1.000.002', '1.000.003', '1.000.004', '1.000.005']
+
+export const sesionPorId = (id: string) => (id === SESION_ENSAYO.id ? SESION_ENSAYO : CRONOGRAMA.find((s) => s.id === id))
 export const tituloSesion = (s: Sesion) => s.temas.map((t) => t.titulo).join(' · ')
 export const docentesSesion = (s: Sesion) => [...new Set(s.temas.map((t) => t.docente))].join(' · ')

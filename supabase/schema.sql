@@ -36,6 +36,11 @@ create table if not exists public.sesiones (
   cerrada_en   timestamptz
 );
 
+-- Ensayos: una clase de prueba (no cuenta para la regularidad) y DNIs de prueba que nunca vinculan un celular
+-- ni figuran en la planilla, para probar el circuito completo sin dejar rastros en lo real.
+alter table public.alumnos add column if not exists ficticio boolean not null default false;
+alter table public.sesiones add column if not exists ensayo boolean not null default false;
+
 create table if not exists public.sesion_secretos (
   sesion_id text primary key references public.sesiones(id) on delete cascade,
   secreto   text not null default encode(extensions.gen_random_bytes(20), 'hex')
@@ -86,6 +91,14 @@ create table if not exists public.intentos_fallidos (
 );
 create index if not exists idx_intentos_ip on public.intentos_fallidos (ip, en desc);
 
+-- Errores que vieron los alumnos, por clase: sólo el código (sin DNI ni IP). La cátedra los ve en vivo.
+create table if not exists public.fallos (
+  sesion_id text not null,
+  codigo    text not null,
+  en        timestamptz not null default now()
+);
+create index if not exists idx_fallos on public.fallos (sesion_id, en desc);
+
 -- ── RLS: el anónimo sólo lee el calendario; el resto pasa por funciones ─────
 
 alter table public.alumnos           enable row level security;
@@ -96,6 +109,7 @@ alter table public.asistencias       enable row level security;
 alter table public.docentes          enable row level security;
 alter table public.ajustes           enable row level security;
 alter table public.intentos_fallidos enable row level security;
+alter table public.fallos            enable row level security;
 
 -- Docente = usuario autenticado (por su id, no por un claim del token) cuyo email está confirmado
 -- y figura en la tabla docentes. Una cuenta creada con el email de un docente pero sin confirmar no entra.
@@ -127,7 +141,7 @@ create policy ajustes_lectura on public.ajustes for select using (true);
 -- Supabase concede por defecto todos los permisos de tabla a anon y authenticated; se parte de cero
 -- para que RLS sea la segunda barrera y no la única.
 revoke all on public.alumnos, public.sesiones, public.sesion_secretos, public.dispositivos, public.asistencias,
-  public.docentes, public.ajustes, public.intentos_fallidos from anon, authenticated;
+  public.docentes, public.ajustes, public.intentos_fallidos, public.fallos from anon, authenticated;
 
 grant select on public.sesiones, public.ajustes to anon, authenticated;
 grant update on public.sesiones to authenticated;
@@ -197,15 +211,23 @@ language sql security definer set search_path = public as $$
   select count(*) >= 300 from intentos_fallidos where ip = public._ip() and en > now() - interval '1 minute'
 $$;
 
-create or replace function public._fallo(codigo text, detalle text default null) returns jsonb
+drop function if exists public._fallo(text, text);
+create or replace function public._fallo(codigo text, detalle text default null, p_sesion text default null) returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
   if codigo in ('CODIGO_INVALIDO', 'DNI_DESCONOCIDO', 'FIRMA_INVALIDA') then
     insert into intentos_fallidos (ip) values (public._ip());
     delete from intentos_fallidos where en < now() - interval '10 minutes';
   end if;
+  if p_sesion is not null and exists (select 1 from sesiones where id = p_sesion) then
+    insert into fallos (sesion_id, codigo) values (p_sesion, codigo);
+    delete from fallos where en < now() - interval '30 days';
+  end if;
   return jsonb_build_object('ok', false, 'error', codigo, 'detalle', detalle);
 end $$;
+
+create or replace function public._es_ensayo(sid text) returns boolean
+language sql stable set search_path = public as $$ select coalesce((select ensayo from sesiones where id = sid), false) $$;
 
 /** Devuelve 'qr' | 'poster' si el pase es auténtico y vigente, o null. */
 create or replace function public._validar_pase(sid text, pase text) returns text
@@ -234,9 +256,9 @@ declare s sesiones; sec text; c bigint; m text;
 begin
   if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
   select * into s from sesiones where id = p_sesion;
-  if not found then return public._fallo('SESION_INEXISTENTE'); end if;
-  if public._estado(s) = 'programada' then return public._fallo('PROGRAMADA', public._ms(public._abre(s))::text); end if;
-  if public._estado(s) = 'cerrada' then return public._fallo('CERRADA', public._ms(public._cierra(s))::text); end if;
+  if not found then return public._fallo('SESION_INEXISTENTE', null, p_sesion); end if;
+  if public._estado(s) = 'programada' then return public._fallo('PROGRAMADA', public._ms(public._abre(s))::text, p_sesion); end if;
+  if public._estado(s) = 'cerrada' then return public._fallo('CERRADA', public._ms(public._cierra(s))::text, p_sesion); end if;
 
   select secreto into sec from sesion_secretos where sesion_id = p_sesion;
   c := public._contador();
@@ -245,7 +267,7 @@ begin
   elsif upper(p_codigo) = public._clave_poster(sec, p_sesion) then
     m := 'p';
   end if;
-  if m is null then return public._fallo('CODIGO_INVALIDO'); end if;
+  if m is null then return public._fallo('CODIGO_INVALIDO', null, p_sesion); end if;
 
   return jsonb_build_object(
     'ok', true,
@@ -267,13 +289,16 @@ declare v text; a alumnos; ocupado text; propio text;
 begin
   if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
   v := public._validar_pase(p_sesion, p_pase);
-  if v is null then return public._fallo('CODIGO_INVALIDO'); end if;
-  if v = 'vencido' then return public._fallo('PASE_VENCIDO'); end if;
+  if v is null then return public._fallo('CODIGO_INVALIDO', null, p_sesion); end if;
+  if v = 'vencido' then return public._fallo('PASE_VENCIDO', null, p_sesion); end if;
   select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g');
-  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
-  select libreta into ocupado from dispositivos where huella = p_huella;
-  if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO'); end if;
-  select huella into propio from dispositivos where libreta = a.libreta;
+  if not found or (a.ficticio and not public._es_ensayo(p_sesion)) then return public._fallo('DNI_DESCONOCIDO', null, p_sesion); end if;
+  -- DNI de prueba (ensayo): varios celulares lo comparten y ninguno queda vinculado.
+  if not a.ficticio then
+    select libreta into ocupado from dispositivos where huella = p_huella;
+    if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO', null, p_sesion); end if;
+    select huella into propio from dispositivos where libreta = a.libreta;
+  end if;
   return jsonb_build_object(
     'ok', true,
     'nombre', public._nombre_corto(a.nombre),
@@ -289,12 +314,12 @@ create or replace function public._progreso(p_libreta text, p_sesion text) retur
 language sql stable set search_path = public as $$
   with hoy as (select (now() at time zone 'America/Argentina/Tucuman')::date d),
   dictadas as (
-    select distinct a.sesion_id from asistencias a join sesiones s on s.id = a.sesion_id, hoy where s.fecha <= hoy.d or s.id = p_sesion
+    select distinct a.sesion_id from asistencias a join sesiones s on s.id = a.sesion_id, hoy where not s.ensayo and (s.fecha <= hoy.d or s.id = p_sesion)
   )
   select jsonb_build_object(
     'presentes', (select count(*) from dictadas d where exists (select 1 from asistencias x where x.sesion_id = d.sesion_id and x.libreta = p_libreta)),
     'dictadas', (select count(*) from dictadas),
-    'restantes', (select count(*) from sesiones s, hoy where s.fecha >= hoy.d and s.id not in (select sesion_id from dictadas))
+    'restantes', (select count(*) from sesiones s, hoy where not s.ensayo and s.fecha >= hoy.d and s.id not in (select sesion_id from dictadas))
   )
 $$;
 
@@ -308,22 +333,25 @@ declare
 begin
   if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
   v := public._validar_pase(p_sesion, p_pase);
-  if v is null then return public._fallo('CODIGO_INVALIDO'); end if;
-  if v = 'vencido' then return public._fallo('PASE_VENCIDO'); end if;
+  if v is null then return public._fallo('CODIGO_INVALIDO', null, p_sesion); end if;
+  if v = 'vencido' then return public._fallo('PASE_VENCIDO', null, p_sesion); end if;
 
   select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g');
-  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  if not found or (a.ficticio and not public._es_ensayo(p_sesion)) then return public._fallo('DNI_DESCONOCIDO', null, p_sesion); end if;
 
   -- La huella tiene que ser la de la clave pública presentada; el timestamp, reciente.
   if p_huella <> encode(digest((p_public_jwk ->> 'x') || '.' || (p_public_jwk ->> 'y'), 'sha256'), 'hex')
      or p_firma is null or abs(public._ms(now()) - p_ts) > 300000 then
-    return public._fallo('FIRMA_INVALIDA');
+    return public._fallo('FIRMA_INVALIDA', null, p_sesion);
   end if;
 
-  select libreta into ocupado from dispositivos where huella = p_huella;
-  if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO'); end if;
-  select huella into propio from dispositivos where libreta = a.libreta;
-  if propio is not null and propio <> p_huella then return public._fallo('DISPOSITIVO_AJENO'); end if;
+  -- Un DNI de prueba no controla ni vincula el celular: así un ensayo no bloquea el teléfono de nadie.
+  if not a.ficticio then
+    select libreta into ocupado from dispositivos where huella = p_huella;
+    if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO', null, p_sesion); end if;
+    select huella into propio from dispositivos where libreta = a.libreta;
+    if propio is not null and propio <> p_huella then return public._fallo('DISPOSITIVO_AJENO', null, p_sesion); end if;
+  end if;
 
   select * into aj from ajustes limit 1;
   if p_lat is not null and p_lng is not null then
@@ -332,10 +360,10 @@ begin
       cos(radians(p_lat)) * cos(radians(aj.sede_lat)) * power(sin(radians(aj.sede_lng - p_lng) / 2), 2)));
   end if;
   if aj.geo_modo = 'exigir' and (dist is null or dist > aj.radio_m) then
-    return public._fallo('FUERA_DE_RANGO', coalesce(round(dist)::text, ''));
+    return public._fallo('FUERA_DE_RANGO', coalesce(round(dist)::text, ''), p_sesion);
   end if;
 
-  if propio is null then
+  if propio is null and not a.ficticio then
     insert into dispositivos (huella, libreta, public_jwk) values (p_huella, a.libreta, p_public_jwk)
     on conflict do nothing;
   end if;
@@ -389,6 +417,7 @@ begin
         'marca', x.metodo
       ) order by s.fecha)
       from sesiones s left join asistencias x on x.sesion_id = s.id and x.libreta = a.libreta
+      where not s.ensayo
     )
   );
 end $$;
@@ -409,7 +438,7 @@ begin
   if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
   return jsonb_build_object(
     'presentes', (select count(*) from asistencias where sesion_id = p_sesion),
-    'total', (select count(*) from alumnos),
+    'total', (select count(*) from alumnos where not ficticio),
     'ultimos', coalesce((
       select jsonb_agg(jsonb_build_object('nombre', public._nombre_corto(al.nombre), 'marcadoEn', public._ms(x.marcado_en)) order by x.marcado_en desc)
       from (select * from asistencias where sesion_id = p_sesion order by marcado_en desc limit 8) x
@@ -417,21 +446,47 @@ begin
   );
 end $$;
 
+/** Borra lo hecho en la clase de ensayo (presentes y fallos) y la deja cerrada. */
+create or replace function public.docente_terminar_ensayo() returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  delete from asistencias where sesion_id in (select id from sesiones where ensayo);
+  get diagnostics n = row_count;
+  delete from fallos where sesion_id in (select id from sesiones where ensayo);
+  update sesiones set manual_desde = null, manual_hasta = null, cerrada_en = null where ensayo;
+  return n;
+end $$;
+
+/** Errores que vieron los alumnos en una clase: los de los últimos minutos y el total, por código. */
+create or replace function public.docente_fallos(p_sesion text, p_minutos int default 10) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  return jsonb_build_object(
+    'recientes', coalesce((select jsonb_object_agg(codigo, n) from (select codigo, count(*) n from fallos where sesion_id = p_sesion and en > now() - make_interval(mins => p_minutos) group by codigo) x), '{}'::jsonb),
+    'total', coalesce((select jsonb_object_agg(codigo, n) from (select codigo, count(*) n from fallos where sesion_id = p_sesion group by codigo) x), '{}'::jsonb)
+  );
+end $$;
+
 -- Las funciones internas no se exponen por la API, y las de cátedra no las ejecuta el anónimo
 -- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
-  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text),
+  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text),
   public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
   public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text), public._progreso(text, text)
 from public, anon, authenticated;
-revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente()
+revoke execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
+  public.docente_terminar_ensayo(), public.docente_fallos(text, int)
 from public, anon;
 
 grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text), public.mi_asistencia(text, text),
   public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
 to anon, authenticated;
-grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente() to authenticated;
+grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
+  public.docente_terminar_ensayo(), public.docente_fallos(text, int) to authenticated;
 
 -- ── Auditoría: quién cargó, quitó o cambió presentes y quién liberó celulares ──
 -- Los presentes por QR no se registran acá (ya tienen hora, método y huella en asistencias): sólo lo manual.
@@ -459,6 +514,12 @@ begin
   if tg_table_name = 'dispositivos' then
     insert into auditoria (accion, libreta, previo) values ('celular_liberado', old.libreta, jsonb_build_object('desde', old.creado_en));
     return old;
+  end if;
+  -- Lo que pasa en la clase de ensayo no deja rastro.
+  if tg_op = 'DELETE' then
+    if public._es_ensayo(old.sesion_id) then return old; end if;
+  elsif public._es_ensayo(new.sesion_id) then
+    return new;
   end if;
   if tg_op = 'INSERT' then
     if new.metodo = 'manual' then
@@ -508,6 +569,18 @@ begin
 end $$;
 revoke execute on function public.elena_cupo(text) from public;
 grant execute on function public.elena_cupo(text) to anon, authenticated;
+
+-- ── Clase de ensayo y DNIs de prueba (1.000.001 a 1.000.005) ──
+insert into public.sesiones (id, n, fecha, titulo, ensayo) values ('ensayo', 0, '2026-01-01', 'Clase de ensayo', true)
+  on conflict (id) do update set ensayo = true;
+insert into public.sesion_secretos (sesion_id) values ('ensayo') on conflict do nothing;
+insert into public.alumnos (libreta, nombre, dni, folio, orden, ficticio) values
+  ('ENSAYO01', 'Ensayo, Alumno Uno', '1000001', null, null, true),
+  ('ENSAYO02', 'Ensayo, Alumna Dos', '1000002', null, null, true),
+  ('ENSAYO03', 'Ensayo, Alumno Tres', '1000003', null, null, true),
+  ('ENSAYO04', 'Ensayo, Alumna Cuatro', '1000004', null, null, true),
+  ('ENSAYO05', 'Ensayo, Alumno Cinco', '1000005', null, null, true)
+  on conflict (libreta) do update set ficticio = true;
 
 -- Tiempo real para el contador del proyector.
 do $$ begin

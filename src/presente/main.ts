@@ -4,7 +4,7 @@ import './presente.css'
 import { publico } from '../data/publico'
 import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
 import { GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
-import { CRONOGRAMA, sesionPorId, type Sesion } from '../lib/cronograma'
+import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
 import { firmar, huellaCorta, obtenerDispositivo, type Dispositivo } from '../lib/device'
 import { obtenerUbicacion } from '../lib/geo'
 import { cuenta, diaSemana, fechaCorta, hmArt, horaArt, hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
@@ -107,7 +107,7 @@ const MARCA = `
 
 const tarjetaClase = (s: Sesion) => `
   <div class="mt-5 rounded-2xl border border-linea bg-white/80 px-4 py-3">
-    <div class="etiqueta">Clase Nº ${String(s.n).padStart(2, '0')} de ${CRONOGRAMA.length} · ${diaSemana(s.fecha)} ${fechaCorta(s.fecha)}</div>
+    <div class="etiqueta">${s.ensayo ? '<span class="text-ambar">Ensayo · no cuenta para la regularidad</span>' : `Clase Nº ${String(s.n).padStart(2, '0')} de ${CRONOGRAMA.length} · ${diaSemana(s.fecha)} ${fechaCorta(s.fecha)}`}</div>
     <div class="mt-1 font-semibold leading-snug text-tinta">${esc(s.temas.map((t) => t.titulo).join(' + '))}</div>
     <div id="chip" class="empty:hidden mt-2">${chipEstado(s)}</div>
   </div>`
@@ -259,9 +259,9 @@ function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>, huella:
       <h1 class="mt-3 text-4xl font-bold text-tinta">${r.estado === 'REGISTRADO' ? '¡Presente!' : 'Ya estabas registrado'}</h1>
       <p class="mt-1 text-slate-500">${esc(r.nombre)}</p>
       <div class="mt-4 font-mono text-5xl font-semibold text-vital tabular-nums">${horaArt(r.marcadoEn)}</div>
-      ${r.progreso ? bloqueProgreso(r.progreso) : ''}
+      ${sesion.ensayo ? '<p class="mt-4 rounded-2xl border border-ambar/30 bg-ambar-suave px-4 py-3 text-sm text-ambar">Fue un ensayo: no cuenta para tu asistencia y no quedó guardado en este celular.</p>' : r.progreso ? bloqueProgreso(r.progreso) : ''}
       ${
-        proxima && vProx
+        proxima && vProx && !sesion.ensayo
           ? `<div class="mt-4 flex items-center gap-3 rounded-2xl border border-linea bg-white/80 px-4 py-3 text-left">
               <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cian-suave text-cian">${svg(I.calendario, 'h-5 w-5')}</div>
               <div class="min-w-0 text-sm"><div class="font-semibold text-tinta">Próxima: ${diaSemana(proxima.fecha)} ${fechaCorta(proxima.fecha)}</div><div class="truncate text-slate-500">Registro de ${vProx.apertura} a ${vProx.cierre} · ${esc(proxima.temas[0].titulo)}</div></div>
@@ -418,8 +418,11 @@ async function registrar(sesion: Sesion, codigo: string) {
     const ubicacion = GEO_MODO === 'off' ? null : await obtenerUbicacion(6000)
     const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })
     if (!r.ok) return mostrarError(sesion, r.error, r.detalle, () => marcar(dni))
-    guardar(CLAVE_DNI, dni)
-    guardar(CLAVE_NOMBRE, r.nombre)
+    // En el ensayo no se recuerda el DNI: puede ser uno de prueba y el miércoles confundiría al dueño del celular.
+    if (!sesion.ensayo) {
+      guardar(CLAVE_DNI, dni)
+      guardar(CLAVE_NOMBRE, r.nombre)
+    }
     try {
       sessionStorage.removeItem(clavePase)
     } catch {
@@ -489,6 +492,7 @@ async function registrar(sesion: Sesion, codigo: string) {
         </div>
         <p id="ayuda" class="mt-2 min-h-5 text-sm ${aviso ? 'text-rosa-oscuro' : 'text-slate-400'}">${esc(aviso ?? 'Sin puntos: se agregan solos.')}</p>
         ${__DEMO__ ? '<p class="mt-1 rounded-xl border border-ambar/30 bg-ambar-suave px-3 py-2 text-xs text-ambar">Modo demo: probá con el DNI ficticio <b class="font-mono">10000001</b></p>' : ''}
+        ${sesion.ensayo ? `<p class="mt-1 rounded-xl border border-ambar/30 bg-ambar-suave px-3 py-2 text-xs text-ambar">Ensayo: podés usar un DNI de prueba, de <b class="font-mono">${DNIS_ENSAYO[0]}</b> a <b class="font-mono">${DNIS_ENSAYO[DNIS_ENSAYO.length - 1]}</b>.</p>` : ''}
         <button id="ok" class="btn btn-primario mt-4 w-full !py-3.5 text-base" disabled>Continuar</button>
         ${barraPase(pase!.vence)}
       </form>`,
