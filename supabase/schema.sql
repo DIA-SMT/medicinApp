@@ -210,9 +210,15 @@ language sql stable set search_path = public as $$
     else 'cerrada' end
 $$;
 
+-- IP real de quien llama. cf-connecting-ip la pone Cloudflare (rechaza el pedido si el cliente intenta mandarla);
+-- de x-forwarded-for sólo vale el último tramo: el primero lo puede inventar cualquiera y saltearía el límite de intentos.
 create or replace function public._ip() returns text
 language sql stable set search_path = public as $$
-  select coalesce(split_part(current_setting('request.headers', true)::json ->> 'x-forwarded-for', ',', 1), 'desconocida')
+  with h as (select nullif(current_setting('request.headers', true), '')::json j)
+  select coalesce(
+    nullif(h.j ->> 'cf-connecting-ip', ''),
+    nullif(trim(split_part(h.j ->> 'x-forwarded-for', ',', -1)), ''),
+    'desconocida') from h
 $$;
 
 create or replace function public._bloqueado() returns boolean
@@ -707,10 +713,24 @@ create index if not exists idx_elena_uso on public.elena_uso (ip_hash, en desc);
 alter table public.elena_uso enable row level security;
 revoke all on public.elena_uso from anon, authenticated;
 
-create or replace function public.elena_cupo(p_ip text) returns boolean
+-- Claves internas de servidor a base (sólo su hash). La de Elena la conoce únicamente la función de Vercel
+-- (variable ELENA_CLAVE): sin ella, cualquiera podría llamar al cupo inventando IPs y agotar el del día.
+-- El hash se carga en producción por SQL, nunca en este archivo.
+create table if not exists public.claves_internas (
+  nombre text primary key,
+  hash   text not null
+);
+alter table public.claves_internas enable row level security;
+revoke all on public.claves_internas from anon, authenticated;
+
+drop function if exists public.elena_cupo(text);
+create or replace function public.elena_cupo(p_ip text, p_clave text) returns boolean
 language plpgsql security definer set search_path = public, extensions as $$
 declare h text := encode(digest(coalesce(p_ip, ''), 'sha256'), 'hex');
 begin
+  if p_clave is null or encode(digest(p_clave, 'sha256'), 'hex') is distinct from (select hash from claves_internas where nombre = 'elena') then
+    return false;
+  end if;
   -- 20 preguntas cada 10 min por IP y 1.500 por día en total
   if (select count(*) from elena_uso where en > now() - interval '1 day') >= 1500 then return false; end if;
   if (select count(*) from elena_uso where ip_hash = h and en > now() - interval '10 minutes') >= 20 then return false; end if;
@@ -718,8 +738,8 @@ begin
   delete from elena_uso where en < now() - interval '2 days';
   return true;
 end $$;
-revoke execute on function public.elena_cupo(text) from public;
-grant execute on function public.elena_cupo(text) to anon, authenticated;
+revoke execute on function public.elena_cupo(text, text) from public;
+grant execute on function public.elena_cupo(text, text) to anon, authenticated;
 
 -- ── Cambio de celular autogestionado ──
 -- Con el celular anterior en la mano: ese celular genera un código de traspaso (15 min) y el nuevo lo ingresa.

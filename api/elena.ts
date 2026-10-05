@@ -41,7 +41,8 @@ async function supabase(ruta: string, init?: RequestInit) {
 
 async function hayCupo(ip: string) {
   try {
-    const r = await supabase('/rpc/elena_cupo', { method: 'POST', body: JSON.stringify({ p_ip: ip }) })
+    // La clave interna prueba que la consulta viene de esta función y no de alguien llamando a la base directo.
+    const r = await supabase('/rpc/elena_cupo', { method: 'POST', body: JSON.stringify({ p_ip: ip, p_clave: process.env.ELENA_CLAVE ?? null }) })
     return r.ok && (await r.json()) === true
   } catch {
     return false // sin poder medir el uso, no se llama al modelo
@@ -68,7 +69,8 @@ export async function POST(request: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) return json({ error: 'Elena todavía no está configurada' }, 503)
 
-  const ip = (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'desconocida'
+  // x-real-ip la pone Vercel (no la puede elegir el cliente).
+  const ip = request.headers.get('x-real-ip') || (request.headers.get('x-forwarded-for') ?? '').split(',').at(-1)!.trim() || 'desconocida'
   const [cupo, filas] = await Promise.all([hayCupo(ip), sesiones()])
   if (!cupo) {
     return json({ respuesta: 'Uy, recibí muchas preguntas seguidas. Esperá unos minutos y escribime de nuevo 🙏' })

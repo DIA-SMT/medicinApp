@@ -185,6 +185,16 @@ ok(!r.ok && r.error === 'CODIGO_INVALIDO', '299 fallos en 1 min (un aula detrás
 r = (await one('select abrir_pase($1,$2) r', [SID, '000000'])).r
 ok(!r.ok && r.error === 'RED' && /intentos/.test(r.detalle), '300 fallos en 1 min → bloqueo temporal', r.detalle)
 
+// La IP no se puede inventar con X-Forwarded-For (saltearía el límite): vale la que pone Cloudflare.
+const ipCon = async (headers) => {
+  await db.exec(`select set_config('request.headers', '${JSON.stringify(headers)}', false)`)
+  const x = (await one('select public._ip() ip')).ip
+  await db.exec(`select set_config('request.headers', '', false)`)
+  return x
+}
+ok((await ipCon({ 'x-forwarded-for': '203.0.113.99, 198.51.100.7', 'cf-connecting-ip': '198.51.100.7' })) === '198.51.100.7', 'la IP sale de cf-connecting-ip, no del X-Forwarded-For que manda el cliente')
+ok((await ipCon({ 'x-forwarded-for': '203.0.113.99, 198.51.100.7' })) === '198.51.100.7', 'sin Cloudflare, vale el último tramo de X-Forwarded-For')
+
 // ── Horario real: 09/10 08:05 ART dentro de la ventana, 08:11 fuera ──
 const v = await one(`select
   (timestamptz '2026-10-09 08:05:00-03' between public._abre(s) and (s.fecha + s.cierre) at time zone 'America/Argentina/Tucuman') dentro,
@@ -194,10 +204,13 @@ const v = await one(`select
 ok(v.dentro && v.antes && v.fuera, 'ventana 07:30–08:10 en hora de Tucumán', v)
 
 // ── Cupo de Elena ──
+await db.exec(`insert into claves_internas (nombre, hash) values ('elena', encode(extensions.digest('clave-de-prueba', 'sha256'), 'hex'))`)
+ok((await one(`select elena_cupo('203.0.113.7', 'otra') ok`)).ok === false && (await one('select count(*)::int n from elena_uso')).n === 0, 'Elena: sin la clave del servidor no se consume el cupo (nadie lo agota desde afuera)')
+ok((await one(`select elena_cupo('203.0.113.7', null) ok`)).ok === false, 'Elena: sin clave, tampoco')
 let permitidas = 0
-for (let i = 0; i < 21; i++) if ((await one(`select elena_cupo('203.0.113.7') ok`)).ok) permitidas++
+for (let i = 0; i < 21; i++) if ((await one(`select elena_cupo('203.0.113.7', 'clave-de-prueba') ok`)).ok) permitidas++
 ok(permitidas === 20, 'Elena: 20 preguntas cada 10 min por IP', permitidas)
-ok((await one(`select elena_cupo('203.0.113.8') ok`)).ok === true, 'Elena: otra IP tiene su propio cupo')
+ok((await one(`select elena_cupo('203.0.113.8', 'clave-de-prueba') ok`)).ok === true, 'Elena: otra IP tiene su propio cupo')
 ok((await one(`select count(*)::int n from elena_uso where ip_hash like '203.%'`)).n === 0, 'Elena: la IP se guarda con hash')
 
 // ── Clase de ensayo y DNIs de prueba ──
