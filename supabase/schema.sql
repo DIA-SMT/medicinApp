@@ -617,7 +617,7 @@ alter table public.auditoria alter column libreta drop not null;
 alter table public.auditoria drop constraint if exists auditoria_accion_check;
 alter table public.auditoria add constraint auditoria_accion_check check (accion in (
   'presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado',
-  'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada'));
+  'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_creada', 'clave_cambiada'));
 alter table public.auditoria enable row level security;
 revoke all on public.auditoria from anon, authenticated;
 grant select on public.auditoria to authenticated;

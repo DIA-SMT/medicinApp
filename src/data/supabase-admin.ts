@@ -47,6 +47,13 @@ export function crearSupabaseAdmin(): AdminApi {
     return data as T
   }
 
+  async function funcionCuentas(cuerpo: Record<string, string>) {
+    const { error } = await sb.functions.invoke('admin-cuentas', { body: cuerpo })
+    if (!error) return
+    const detalle = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    throw new Error((detalle as { error?: string } | null)?.error ?? 'No se pudo completar. Probá de nuevo.')
+  }
+
   async function todas<T>(tabla: string, columnas: string): Promise<T[]> {
     const out: T[] = []
     for (let desde = 0; ; desde += 1000) {
@@ -87,21 +94,9 @@ export function crearSupabaseAdmin(): AdminApi {
       return { ok: true }
     },
 
-    async registrar(email, clave) {
-      const { data, error } = await sb.auth.signUp({ email, password: clave, options: { emailRedirectTo: `${location.origin}/#/panel` } })
-      if (error) {
-        if (/already|registered|exists/i.test(error.message)) return { ok: false, error: 'Ya hay una cuenta con ese email: ingresá con tu contraseña.' }
-        if (/password/i.test(error.message)) return { ok: false, error: 'La contraseña es demasiado débil: usá al menos 8 caracteres, mezclando letras y números.' }
-        if (/rate|limit|sending|authorized/i.test(error.message)) {
-          // El correo de confirmación puede fallar (límite del servicio de correo de Supabase); la cuenta igual
-          // puede haberse creado, y el administrador la confirma desde la base.
-          return { ok: true }
-        }
-        return { ok: false, error: `No se pudo crear la cuenta: ${error.message}` }
-      }
-      // Hasta que el administrador la habilite no tiene acceso: no dejamos una sesión abierta.
-      if (data.session) await sb.auth.signOut()
-      return { ok: true }
+    async cambiarMiClave(clave) {
+      const { error } = await sb.auth.updateUser({ password: clave })
+      if (error) throw new Error(/same|different/i.test(error.message) ? 'La nueva contraseña tiene que ser distinta de la actual.' : /weak|short|least/i.test(error.message) ? 'La contraseña es demasiado débil: usá al menos 8 caracteres.' : error.message)
     },
 
     async salir() {
@@ -198,5 +193,10 @@ export function crearSupabaseAdmin(): AdminApi {
     quitarCuenta: (email) => rpc<void>('admin_quitar', { p_email: email }),
     cambiarRol: (email, rol) => rpc<void>('admin_rol', { p_email: email, p_rol: rol }),
     rechazar: (email) => rpc<void>('admin_rechazar', { p_email: email }),
+
+    // Crear cuentas y cambiar contraseñas necesita la llave de servicio: lo hace la Edge Function «admin-cuentas»,
+    // que primero comprueba con el token de quien llama que sea administrador.
+    crearCuenta: (email, rol, clave) => funcionCuentas({ accion: 'crear', email, rol, clave }),
+    cambiarClave: (email, clave) => funcionCuentas({ accion: 'clave', email, clave }),
   }
 }

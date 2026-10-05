@@ -2,6 +2,7 @@ import { Activity, CalendarCheck, CircleCheck, FlaskConical, KeyRound, ShieldChe
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
+import { claveSugerida } from '../lib/clave'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Registro, Rol, Solicitud } from '../data/types'
@@ -226,6 +227,7 @@ export function Panel() {
   const [busquedaDisp, setBusquedaDisp] = useState('')
   // Administradores: pestaña «Cuentas» y aviso de pedidos de acceso pendientes.
   const [esAdmin, setEsAdmin] = useState(false)
+  const [verMiClave, setVerMiClave] = useState(false)
   const [pendientes, setPendientes] = useState(0)
   const revisarCuentas = useCallback(() => {
     api
@@ -389,6 +391,9 @@ export function Panel() {
           <button className="btn btn-secundario !px-3" onClick={exportarCsv} title="Los mismos datos en CSV, para Excel o como copia de los datos">
             <Download className="h-4 w-4" /> CSV
           </button>
+          <button className="btn btn-secundario" onClick={() => setVerMiClave((x) => !x)} title="Cambiar tu contraseña">
+            <KeyRound className="h-4 w-4" /> Mi contraseña
+          </button>
           {api.modo === 'supabase' && (
             <button className="btn btn-secundario" onClick={() => api.salir().then(() => location.reload())} title="Cerrar la sesión de la cátedra en esta computadora">
               <LogOut className="h-4 w-4" /> Salir
@@ -396,6 +401,8 @@ export function Panel() {
           )}
         </div>
       </div>
+
+      {verMiClave && <MiClave avisar={mostrar} onCerrar={() => setVerMiClave(false)} />}
 
       {esAdmin && pendientes > 0 && tab !== 'cuentas' && (
         <button
@@ -623,6 +630,58 @@ export function Panel() {
   )
 }
 
+/** Cualquier cuenta de la cátedra cambia su propia contraseña (por ejemplo, la inicial que le dio un administrador). */
+function MiClave({ avisar, onCerrar }: { avisar: Avisar; onCerrar: () => void }) {
+  const api = useAdmin()
+  const [clave, setClave] = useState('')
+  const [repetir, setRepetir] = useState('')
+  const [error, setError] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  return (
+    <form
+      className="entrada tarjeta hud mt-6 grid gap-3 p-5 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+      onSubmit={async (e) => {
+        e.preventDefault()
+        setError('')
+        if (clave.length < 8) return setError('Al menos 8 caracteres.')
+        if (clave !== repetir) return setError('Las dos contraseñas no coinciden.')
+        setEnviando(true)
+        try {
+          await api.cambiarMiClave(clave)
+          avisar('Listo: tu contraseña quedó cambiada.')
+          onCerrar()
+        } catch (err) {
+          setError(String((err as Error).message ?? err))
+        } finally {
+          setEnviando(false)
+        }
+      }}
+    >
+      <div className="sm:col-span-3">
+        <div className="etiqueta">Cambiar mi contraseña</div>
+        <p className="mt-1 text-sm text-slate-500">Elegí una propia, de al menos 8 caracteres. Desde ahora entrás con esta.</p>
+      </div>
+      <label className="text-sm text-slate-600">
+        Nueva contraseña
+        <input type="password" autoComplete="new-password" className="campo mt-1" value={clave} onChange={(e) => setClave(e.target.value)} required />
+      </label>
+      <label className="text-sm text-slate-600">
+        Repetila
+        <input type="password" autoComplete="new-password" className="campo mt-1" value={repetir} onChange={(e) => setRepetir(e.target.value)} required />
+      </label>
+      <div className="flex gap-2">
+        <button className="btn btn-primario" disabled={enviando}>
+          {enviando ? 'Guardando…' : 'Guardar'}
+        </button>
+        <button type="button" className="btn btn-secundario" onClick={onCerrar}>
+          Cancelar
+        </button>
+      </div>
+      {error && <p className="text-sm text-rosa-oscuro sm:col-span-3">{error}</p>}
+    </form>
+  )
+}
+
 const hace = (ms: number | null) => {
   if (!ms) return ''
   const min = Math.round((Date.now() - ms) / 60e3)
@@ -638,14 +697,18 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
   const [error, setError] = useState('')
   const [email, setEmail] = useState('')
   const [rol, setRol] = useState<Rol>('docente')
+  const [clave, setClave] = useState(claveSugerida)
   const [ocupado, setOcupado] = useState(false)
+  // Datos para pasarle a la persona después de crear la cuenta o cambiar la contraseña (se muestran una sola vez).
+  const [credenciales, setCredenciales] = useState<{ email: string; clave: string; nueva: boolean } | null>(null)
+  const [copiado, setCopiado] = useState(false)
 
   const cargar = useCallback(() => {
     api.cuentas().then(setDatos).catch((e) => setError(String(e.message ?? e)))
   }, [api])
   useEffect(cargar, [cargar])
 
-  /** Ejecuta una acción de cuentas, recarga y avisa (los errores de la base llegan ya en castellano). */
+  /** Ejecuta una acción de cuentas, recarga y avisa (los errores llegan ya en castellano). Devuelve si salió bien. */
   const hacer = async (accion: () => Promise<void>, ok: string) => {
     setOcupado(true)
     try {
@@ -653,10 +716,43 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
       avisar(ok)
       cargar()
       alCambiar()
+      return true
     } catch (e) {
       avisar(String((e as Error).message ?? e))
+      return false
     } finally {
       setOcupado(false)
+    }
+  }
+
+  const crear = async () => {
+    const e = email.trim().toLowerCase()
+    if (!e || clave.length < 8) return
+    if (await hacer(() => api.crearCuenta(e, rol, clave), `Cuenta creada: ${e}`)) {
+      setCredenciales({ email: e, clave, nueva: true })
+      setCopiado(false)
+      setEmail('')
+      setClave(claveSugerida())
+    }
+  }
+
+  const cambiarClave = async (c: Cuenta) => {
+    const nueva = claveSugerida()
+    if (!confirm(`¿Cambiar la contraseña de ${c.email}?\n\nLa actual deja de funcionar y la nueva va a ser:\n${nueva}`)) return
+    if (await hacer(() => api.cambiarClave(c.email, nueva), `Contraseña cambiada: ${c.email}`)) {
+      setCredenciales({ email: c.email, clave: nueva, nueva: false })
+      setCopiado(false)
+    }
+  }
+
+  const copiar = async () => {
+    if (!credenciales) return
+    const texto = `Acceso a CICLO (cátedra de Ginecología)\n${location.origin}/#/panel\nEmail: ${credenciales.email}\nContraseña: ${credenciales.clave}\nAl entrar, cambiala en «Mi contraseña».`
+    try {
+      await navigator.clipboard.writeText(texto)
+      setCopiado(true)
+    } catch {
+      avisar('No se pudo copiar: seleccioná el texto a mano.')
     }
   }
 
@@ -664,53 +760,41 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
   if (!datos) return <p className="tarjeta mt-4 p-5 font-mono text-sm text-slate-400">Cargando cuentas…</p>
 
   const estado = (c: Cuenta) =>
-    !c.creada ? ['Habilitada · todavía no creó la cuenta', 'bg-ambar-suave text-ambar'] : !c.confirmada ? ['Falta confirmar el email', 'bg-ambar-suave text-ambar'] : ['Activa', 'bg-vital-suave text-vital']
+    !c.creada ? ['Sin cuenta todavía', 'bg-ambar-suave text-ambar'] : !c.confirmada ? ['Falta confirmar', 'bg-ambar-suave text-ambar'] : ['Activa', 'bg-vital-suave text-vital']
 
   return (
     <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_22rem]">
       <div className="space-y-5">
-        <div className="tarjeta hud p-5">
-          <div className="etiqueta flex items-center gap-1.5">
-            <UserCheck className="h-3.5 w-3.5" /> Pedidos de acceso ({datos.solicitudes.length})
+        {credenciales && (
+          <div className="entrada tarjeta border-vital/40 p-5">
+            <div className="etiqueta flex items-center gap-1.5 !text-vital">
+              <CircleCheck className="h-3.5 w-3.5" /> {credenciales.nueva ? 'Cuenta lista' : 'Contraseña nueva'} · pasale estos datos
+            </div>
+            <dl className="mt-3 grid gap-1 rounded-xl bg-rosa-claro p-3 font-mono text-sm">
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Dirección</dt>
+                <dd className="break-all text-tinta">{location.host}/#/panel</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Email</dt>
+                <dd className="break-all text-tinta">{credenciales.email}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-slate-500">Contraseña</dt>
+                <dd className="font-semibold text-tinta select-all">{credenciales.clave}</dd>
+              </div>
+            </dl>
+            <p className="mt-2 text-xs text-slate-500">Se muestra sólo ahora. Pasáselo por un canal privado y pedile que la cambie al entrar, en «Mi contraseña».</p>
+            <div className="mt-3 flex gap-2">
+              <button className="btn btn-primario !py-1.5 !text-xs" onClick={copiar}>
+                {copiado ? '¡Copiado!' : 'Copiar los datos'}
+              </button>
+              <button className="btn btn-secundario !py-1.5 !text-xs" onClick={() => setCredenciales(null)}>
+                Listo, ocultar
+              </button>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-slate-500">Personas que crearon su cuenta en «Crear cuenta de la cátedra» y esperan aprobación. Aprobá sólo a quien conocés.</p>
-          {datos.solicitudes.length === 0 && <p className="py-4 text-center text-sm text-slate-400">No hay pedidos pendientes.</p>}
-          <ul className="mt-3 divide-y divide-slate-100">
-            {datos.solicitudes.map((x) => (
-              <li key={x.email} className="flex flex-wrap items-center gap-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-tinta">{x.email}</div>
-                  <div className="text-xs text-slate-500">
-                    Creó la cuenta {hace(x.creadaEn)} · {x.confirmada ? 'email confirmado' : 'todavía no confirmó el email'}
-                  </div>
-                </div>
-                {x.confirmada ? (
-                  <button className="btn btn-primario !py-1.5 !text-xs" disabled={ocupado} onClick={() => hacer(() => api.habilitar(x.email, 'docente'), `Cuenta aprobada: ${x.email}`)}>
-                    Aprobar
-                  </button>
-                ) : (
-                  <button
-                    className="btn btn-primario !py-1.5 !text-xs"
-                    disabled={ocupado}
-                    onClick={() =>
-                      confirm(`¿Aprobar y confirmar ${x.email} sin el correo de confirmación?\n\nHacelo sólo si sabés que esa persona creó la cuenta: el correo es lo que prueba que el email es suyo.`) &&
-                      hacer(() => api.habilitar(x.email, 'docente', true), `Cuenta aprobada y confirmada: ${x.email}`)
-                    }
-                  >
-                    Aprobar y confirmar
-                  </button>
-                )}
-                <button
-                  className="btn btn-secundario !py-1.5 !text-xs"
-                  disabled={ocupado}
-                  onClick={() => confirm(`¿Rechazar el pedido de ${x.email}? Se borra esa cuenta (puede volver a pedirla).`) && hacer(() => api.rechazar(x.email), `Pedido rechazado: ${x.email}`)}
-                >
-                  <UserX className="h-3.5 w-3.5" /> Rechazar
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        )}
 
         <div className="tarjeta hud p-5">
           <div className="etiqueta flex items-center gap-1.5">
@@ -735,16 +819,21 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
                       {c.ultimoIngreso && <span>Último ingreso {hace(c.ultimoIngreso)}</span>}
                     </div>
                   </div>
-                  {c.creada && !c.confirmada && (
+                  {!c.creada ? (
                     <button
-                      className="btn btn-secundario !py-1.5 !text-xs"
+                      className="btn btn-primario !py-1.5 !text-xs"
                       disabled={ocupado}
-                      onClick={() =>
-                        confirm(`¿Confirmar ${c.email} sin el correo? Hacelo sólo si sabés que esa persona creó la cuenta.`) &&
-                        hacer(() => api.habilitar(c.email, c.rol, true), `Cuenta confirmada: ${c.email}`)
-                      }
+                      onClick={() => {
+                        setEmail(c.email)
+                        setRol(c.rol)
+                        document.getElementById('crear-email')?.focus()
+                      }}
                     >
-                      Confirmar
+                      <UserPlus className="h-3.5 w-3.5" /> Crearle la cuenta
+                    </button>
+                  ) : (
+                    <button className="btn btn-secundario !py-1.5 !text-xs" disabled={ocupado} onClick={() => cambiarClave(c)} title="Para una contraseña olvidada: genera una nueva">
+                      <KeyRound className="h-3.5 w-3.5" /> Cambiar contraseña
                     </button>
                   )}
                   <button
@@ -752,7 +841,7 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
                     disabled={ocupado}
                     onClick={() => hacer(() => api.cambiarRol(c.email, c.rol === 'admin' ? 'docente' : 'admin'), c.rol === 'admin' ? `${c.email} ya no es administrador` : `${c.email} ahora es administrador`)}
                   >
-                    <KeyRound className="h-3.5 w-3.5" /> {c.rol === 'admin' ? 'Quitar administrador' : 'Hacer administrador'}
+                    {c.rol === 'admin' ? 'Quitar administrador' : 'Hacer administrador'}
                   </button>
                   {!soyYo && (
                     <button
@@ -768,22 +857,57 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
             })}
           </ul>
         </div>
+
+        {/* Pedidos de cuentas creadas por cuenta propia (ya no se ofrece crearlas así, pero si aparece alguno se resuelve acá). */}
+        {datos.solicitudes.length > 0 && (
+          <div className="tarjeta hud p-5">
+            <div className="etiqueta flex items-center gap-1.5">
+              <UserCheck className="h-3.5 w-3.5" /> Pedidos de acceso ({datos.solicitudes.length})
+            </div>
+            <p className="mt-1 text-sm text-slate-500">Cuentas creadas sin pasar por un administrador. Aprobá sólo a quien conocés; si no sabés quién es, rechazalo.</p>
+            <ul className="mt-3 divide-y divide-slate-100">
+              {datos.solicitudes.map((x) => (
+                <li key={x.email} className="flex flex-wrap items-center gap-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-tinta">{x.email}</div>
+                    <div className="text-xs text-slate-500">
+                      Creada {hace(x.creadaEn)} · {x.confirmada ? 'email confirmado' : 'email sin confirmar'}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-primario !py-1.5 !text-xs"
+                    disabled={ocupado}
+                    onClick={() =>
+                      (x.confirmada || confirm(`¿Aprobar y confirmar ${x.email}? Hacelo sólo si sabés que esa persona creó la cuenta.`)) &&
+                      hacer(() => api.habilitar(x.email, 'docente', !x.confirmada), `Cuenta aprobada: ${x.email}`)
+                    }
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    className="btn btn-secundario !py-1.5 !text-xs"
+                    disabled={ocupado}
+                    onClick={() => confirm(`¿Rechazar y borrar la cuenta ${x.email}?`) && hacer(() => api.rechazar(x.email), `Pedido rechazado: ${x.email}`)}
+                  >
+                    <UserX className="h-3.5 w-3.5" /> Rechazar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <form
         className="tarjeta hud space-y-3 p-5 lg:sticky lg:top-24 lg:self-start"
         onSubmit={(e) => {
           e.preventDefault()
-          const v = email.trim().toLowerCase()
-          if (v) hacer(() => api.habilitar(v, rol), `Habilitado: ${v}`).then(() => setEmail(''))
+          crear()
         }}
       >
-        <div className="etiqueta">Habilitar un email</div>
-        <p className="text-sm text-slate-500">
-          Para sumar a alguien sin esperar el pedido: después esa persona entra a <b className="text-tinta">{location.host}/#/panel</b>, toca «Crear cuenta de la
-          cátedra» con este mismo email y, al confirmar el correo, ya tiene acceso.
-        </p>
-        <input className="campo" type="email" placeholder="email@ejemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <div className="etiqueta">Crear una cuenta</div>
+        <p className="text-sm text-slate-500">Queda lista para entrar, sin correos de confirmación. Después le pasás el email y la contraseña.</p>
+        <input id="crear-email" className="campo" type="email" placeholder="email@ejemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <div className="flex gap-2">
           {(['docente', 'admin'] as const).map((r) => (
             <button
@@ -797,8 +921,18 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
           ))}
         </div>
         <p className="text-xs text-slate-400">Docente: proyector, presente manual y planilla. Administrador: además gestiona estas cuentas.</p>
-        <button className="btn btn-primario w-full" disabled={ocupado || !email.trim()}>
-          <UserCheck className="h-4 w-4" /> Habilitar
+        <label className="etiqueta block" htmlFor="crear-clave">
+          Contraseña inicial
+        </label>
+        <div className="flex gap-2">
+          <input id="crear-clave" className="campo font-mono text-sm" value={clave} onChange={(e) => setClave(e.target.value)} minLength={8} required />
+          <button type="button" className="btn btn-secundario !px-3 !text-xs" onClick={() => setClave(claveSugerida())} title="Generar otra">
+            Otra
+          </button>
+        </div>
+        {clave.length > 0 && clave.length < 8 && <p className="text-xs text-ambar">Al menos 8 caracteres.</p>}
+        <button className="btn btn-primario w-full" disabled={ocupado || !email.trim() || clave.length < 8}>
+          <UserPlus className="h-4 w-4" /> Crear cuenta
         </button>
       </form>
     </div>
@@ -814,6 +948,8 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   cuenta_confirmada: { texto: 'Cuenta confirmada', color: '#0e9f68' },
   cuenta_quitada: { texto: 'Acceso quitado', color: '#e0246f' },
   rol_cambiado: { texto: 'Rol cambiado', color: '#c27c03' },
+  cuenta_creada: { texto: 'Cuenta creada', color: '#0e9f68' },
+  clave_cambiada: { texto: 'Contraseña cambiada', color: '#c27c03' },
   solicitud_rechazada: { texto: 'Pedido rechazado', color: '#e0246f' },
 }
 

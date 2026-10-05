@@ -214,9 +214,7 @@ export function crearLocal(): PublicoApi & AdminApi {
       return { ok: true }
     },
     async salir() {},
-    async registrar() {
-      return { ok: true }
-    },
+    async cambiarMiClave() {},
 
     async secreto(sesionId) {
       return secretoDe(sesionId)
@@ -331,6 +329,16 @@ export function crearLocal(): PublicoApi & AdminApi {
       const { cuentas } = await this.cuentas()
       escribir(K.cuentas, cuentas.map((c) => (c.email === email ? { ...c, rol } : c)))
       auditar({ accion: 'rol_cambiado', sesionId: null, libreta: null, cuenta: email, detalle: rol })
+    },
+    async crearCuenta(email, rol) {
+      const { cuentas } = await this.cuentas()
+      const e = email.trim().toLowerCase()
+      if (cuentas.some((c) => c.email === e && c.creada)) throw new Error('Ya existe una cuenta con ese email. Si se olvidó la contraseña, usá «Cambiar contraseña».')
+      escribir(K.cuentas, [...cuentas.filter((c) => c.email !== e), { email: e, rol, creada: true, confirmada: true, ultimoIngreso: null, agregadoEn: Date.now(), agregadoPor: 'demo@catedra' }])
+      auditar({ accion: 'cuenta_creada', sesionId: null, libreta: null, cuenta: e, detalle: rol })
+    },
+    async cambiarClave(email) {
+      auditar({ accion: 'clave_cambiada', sesionId: null, libreta: null, cuenta: email, detalle: null })
     },
     async rechazar(email) {
       const { solicitudes } = await this.cuentas()
