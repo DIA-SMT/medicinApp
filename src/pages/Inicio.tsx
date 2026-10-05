@@ -29,7 +29,7 @@ const SEGURIDAD = [
 
 const PREGUNTAS: { icono: typeof Camera; p: string; r: string }[] = [
   { icono: BatteryLow, p: 'Me quedé sin batería o no tengo celular', r: 'Avisale a la cátedra en la clase: te cargan el presente manual.' },
-  { icono: Smartphone, p: 'Cambié de celular o borré los datos del navegador', r: 'La cátedra libera tu celular anterior y en la próxima clase te registrás de nuevo con tu DNI.' },
+  { icono: Smartphone, p: 'Cambié de celular o borré los datos del navegador', r: 'Si todavía tenés el anterior, en «Mi asistencia» tocá «Cambiar de celular»: te da un código para escribir en el nuevo y listo. Si lo perdiste, desde el nuevo entrá a «Dar presente» y pedí el cambio: lo aprueba la cátedra.' },
   { icono: UserX, p: '¿Puedo dar presente desde el celular de un compañero?', r: 'No. Cada celular queda vinculado a un solo alumno: si lo usás vos, tu compañero ya no puede registrarse con el suyo.' },
   { icono: Clock, p: `Llegué después de las ${CIERRE_DEFAULT}`, r: 'El registro ya cerró. Si estuviste en la clase, hablalo con la cátedra en el momento.' },
   { icono: QrCode, p: '¿Me sirve una foto del QR que me pasaron?', r: `No: el código del aula cambia cada ${TOTP_PASO_S} segundos y la foto llega vencida.` },

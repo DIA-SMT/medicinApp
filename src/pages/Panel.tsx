@@ -6,7 +6,7 @@ import { claveSugerida } from '../lib/clave'
 import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
-import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Registro, Rol, Solicitud } from '../data/types'
+import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, Rol, Solicitud } from '../data/types'
 import { MOTIVOS_MANUALES, UMBRAL_REGULARIDAD } from '../lib/config'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
@@ -265,6 +265,17 @@ export function Panel() {
     return api.suscribir(cargar)
   }, [api, cargar])
 
+  // Pedidos de cambio de celular (alumnos sin el anterior): se revisan cada 20 s, porque suelen llegar en clase.
+  const [pedidosCel, setPedidosCel] = useState<PedidoCelular[]>([])
+  const cargarPedidos = useCallback(() => {
+    api.pedidosCelular().then(setPedidosCel).catch(() => {})
+  }, [api])
+  useEffect(() => {
+    cargarPedidos()
+    const t = setInterval(cargarPedidos, 20_000)
+    return () => clearInterval(t)
+  }, [cargarPedidos])
+
   useEffect(() => {
     try {
       localStorage.setItem('ciclo:umbral', String(umbral))
@@ -429,6 +440,19 @@ export function Panel() {
         </button>
       )}
 
+      {pedidosCel.length > 0 && tab !== 'dispositivos' && (
+        <button
+          onClick={() => ir({ tab: 'dispositivos' })}
+          className="entrada mt-8 flex w-full flex-wrap items-center gap-3 rounded-2xl border border-ambar/30 bg-ambar-suave p-4 text-left transition hover:border-ambar/60"
+        >
+          <Smartphone className="h-5 w-5 shrink-0 text-ambar" />
+          <span className="flex-1 font-medium text-tinta">
+            {pedidosCel.length === 1 ? '1 alumno pidió' : `${pedidosCel.length} alumnos pidieron`} pasar su presente a un celular nuevo
+          </span>
+          <span className="text-sm font-semibold text-ambar">Revisar →</span>
+        </button>
+      )}
+
       <RecordatorioExportar registros={registros} onExportar={exportarPlanilla} />
 
       <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
@@ -477,7 +501,7 @@ export function Panel() {
             ['regularidad', 'Regularidad', Users],
             ['manual', 'Presente manual', UserPlus],
             ['clase', 'Por clase', CalendarCheck],
-            ['dispositivos', `Dispositivos (${dispositivos.length})`, Smartphone],
+            ['dispositivos', `Dispositivos (${dispositivos.length})${pedidosCel.length ? ` · ${pedidosCel.length} pedido${pedidosCel.length === 1 ? '' : 's'}` : ''}`, Smartphone],
             ['historial', 'Historial', History],
             ...(esAdmin ? ([['cuentas', `Cuentas${pendientes ? ` (${pendientes} pedido${pendientes === 1 ? '' : 's'})` : ''}`, ShieldCheck]] as const) : []),
           ] as const
@@ -595,10 +619,12 @@ export function Panel() {
 
       {tab === 'dispositivos' && (
         <div className="tarjeta hud mt-4 p-5">
+          <PedidosCelular pedidos={pedidosCel} avisar={mostrar} alCambiar={() => (cargarPedidos(), cargar())} />
           <p className="flex items-start gap-2 text-sm text-slate-600">
             <FingerprintPattern className="mt-0.5 h-4 w-4 shrink-0 text-cian" />
-            Cada alumno queda vinculado al primer celular con el que da el presente. Si cambia de teléfono o borra los datos del navegador, liberá el vínculo y el
-            próximo registro creará uno nuevo.
+            Cada alumno queda vinculado al primer celular con el que da el presente. Si cambia de teléfono, lo pasa solo con un código desde el anterior («Mi
+            asistencia» → «Cambiar de celular»); si lo perdió, lo pide y aparece arriba para aprobar. También podés liberar el vínculo: el próximo registro crea uno
+            nuevo.
           </p>
           {dispositivos.length > 0 && (
             <div className="relative mt-4">
@@ -983,6 +1009,8 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   solicitud_rechazada: { texto: 'Pedido rechazado', color: '#e0246f' },
   clase_suspendida: { texto: 'Clase suspendida', color: '#c27c03' },
   clase_reanudada: { texto: 'Clase reanudada', color: '#0e9f68' },
+  celular_cambiado: { texto: 'Celular cambiado', color: '#b04aa6' },
+  cambio_celular_rechazado: { texto: 'Cambio de celular rechazado', color: '#e0246f' },
 }
 
 /** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */
@@ -1204,6 +1232,63 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar, avisar 
           </ul>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** Alumnos sin el celular anterior que piden pasar su presente a uno nuevo. Aprobar mueve el vínculo al instante. */
+function PedidosCelular({ pedidos, avisar, alCambiar }: { pedidos: PedidoCelular[]; avisar: Avisar; alCambiar: () => void }) {
+  const api = useAdmin()
+  const [ocupado, setOcupado] = useState<string | null>(null)
+  if (!pedidos.length) return null
+  const dia = (ms: number) => fechaCorta(hoyIso(ms))
+  const resolver = async (p: PedidoCelular, aprobar: boolean) => {
+    if (
+      aprobar &&
+      !confirm(`¿Pasar el presente de ${p.nombre} al celular nuevo?\n\nAprobalo sólo si sabés que lo pidió el alumno (en persona o por un canal de la cátedra). El celular anterior deja de servir.`)
+    )
+      return
+    if (!aprobar && !confirm(`¿Rechazar el pedido de ${p.nombre}? Sigue con su celular actual.`)) return
+    setOcupado(p.libreta)
+    try {
+      await api.resolverCambio(p.libreta, aprobar)
+      avisar(aprobar ? `Celular nuevo aprobado: ${p.nombre.split(',')[0]}` : `Pedido rechazado: ${p.nombre.split(',')[0]}`)
+      alCambiar()
+    } catch (e) {
+      avisar(String((e as Error).message ?? e))
+    } finally {
+      setOcupado(null)
+    }
+  }
+  return (
+    <div className="mb-5 rounded-2xl border border-ambar/30 bg-ambar-suave/60 p-4">
+      <div className="etiqueta flex items-center gap-1.5 !text-ambar">
+        <Smartphone className="h-3.5 w-3.5" /> Pedidos de cambio de celular ({pedidos.length})
+      </div>
+      <p className="mt-1 text-sm text-slate-600">
+        Alumnos sin el celular anterior (perdido, roto o con los datos borrados). Aprobá sólo si sabés que lo pidió el alumno: si no, alguien podría dar presente por
+        otro.
+      </p>
+      <ul className="mt-2 divide-y divide-ambar/20">
+        {pedidos.map((p) => (
+          <li key={p.libreta} className="flex flex-wrap items-center gap-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-tinta">{p.nombre}</div>
+              <div className="text-xs text-slate-500">
+                {p.libreta} · pedido {hace(p.pedidoEn)}
+                {p.vinculadoDesde ? ` · celular actual desde el ${dia(p.vinculadoDesde)}` : ''}
+                {p.ultimoUso ? ` · lo usó por última vez el ${dia(p.ultimoUso)}` : ' · todavía no dio presente con el actual'}
+              </div>
+            </div>
+            <button className="btn btn-primario !py-1.5 !text-xs" disabled={ocupado === p.libreta} onClick={() => resolver(p, true)}>
+              Aprobar
+            </button>
+            <button className="btn btn-secundario !py-1.5 !text-xs" disabled={ocupado === p.libreta} onClick={() => resolver(p, false)}>
+              Rechazar
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

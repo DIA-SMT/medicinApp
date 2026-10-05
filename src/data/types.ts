@@ -43,6 +43,8 @@ export type CodigoError =
   | 'FIRMA_INVALIDA'
   | 'FUERA_DE_RANGO'
   | 'SUSPENDIDA'
+  | 'SIN_VINCULO'
+  | 'YA_VINCULADO'
   | 'SIN_CRYPTO'
   | 'NO_AUTORIZADO'
   | 'RED'
@@ -99,6 +101,8 @@ export type AccionAuditoria =
   | 'clave_cambiada'
   | 'clase_suspendida'
   | 'clase_reanudada'
+  | 'celular_cambiado'
+  | 'cambio_celular_rechazado'
 
 export type Rol = 'admin' | 'docente'
 
@@ -132,6 +136,18 @@ export interface EventoAuditoria {
   detalle: string | null
 }
 
+/** Un alumno pidió pasar su presente a otro celular sin tener el anterior (lo aprueba la cátedra). */
+export interface PedidoCelular {
+  libreta: string
+  nombre: string
+  pedidoEn: number
+  /** Desde cuándo tiene vinculado el celular actual, y cuándo dio presente con él por última vez. */
+  vinculadoDesde: number | null
+  ultimoUso: number | null
+}
+
+export type EstadoCambio = 'APROBADO' | 'PENDIENTE' | 'SIN_PEDIDO'
+
 export interface DispositivoVinculado {
   libreta: string
   huella: string
@@ -148,6 +164,14 @@ export interface PublicoApi {
   marcar(p: PedidoMarca): Promise<ResultadoMarca>
   /** Sólo responde al celular vinculado a ese DNI. */
   miAsistencia(dni: string, huella: string): Promise<ResultadoMiAsistencia>
+  /**
+   * Cambio de celular. Con el anterior en la mano: ese genera un código (iniciarTraspaso) y el nuevo lo ingresa
+   * (completarTraspaso). Sin el anterior: el nuevo deja un pedido que aprueba la cátedra (pedirCambio, estadoCambio).
+   */
+  iniciarTraspaso(dni: string, huella: string): Promise<{ ok: true; codigo: string; vence: number } | Fallo>
+  completarTraspaso(dni: string, codigo: string, huella: string, publicJwk: JsonWebKey): Promise<{ ok: true; nombre: string } | Fallo>
+  pedirCambio(dni: string, huella: string, publicJwk: JsonWebKey): Promise<{ ok: true } | Fallo>
+  estadoCambio(dni: string, huella: string): Promise<{ ok: true; estado: EstadoCambio } | Fallo>
 }
 
 /** Lo que usa la cátedra: proyector, póster y panel. Se carga recién al entrar con usuario. */
@@ -172,6 +196,9 @@ export interface AdminApi {
   quitarPresente(sesionId: string, libretas: string[]): Promise<void>
   dispositivos(): Promise<DispositivoVinculado[]>
   liberarDispositivo(libreta: string): Promise<void>
+  /** Pedidos de cambio de celular de alumnos que no tienen el anterior. */
+  pedidosCelular(): Promise<PedidoCelular[]>
+  resolverCambio(libreta: string, aprobar: boolean): Promise<void>
   /** Borra los presentes y fallos de la clase de ensayo y la cierra. Devuelve cuántos presentes borró. */
   terminarEnsayo(): Promise<number>
   /** Errores que vieron los alumnos en una clase (sólo el código): de los últimos 10 minutos y en total. */

@@ -652,7 +652,7 @@ alter table public.auditoria drop constraint if exists auditoria_accion_check;
 alter table public.auditoria add constraint auditoria_accion_check check (accion in (
   'presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado',
   'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_creada', 'clave_cambiada',
-  'clase_suspendida', 'clase_reanudada'));
+  'clase_suspendida', 'clase_reanudada', 'celular_cambiado', 'cambio_celular_rechazado'));
 alter table public.auditoria enable row level security;
 revoke all on public.auditoria from anon, authenticated;
 grant select on public.auditoria to authenticated;
@@ -720,6 +720,155 @@ begin
 end $$;
 revoke execute on function public.elena_cupo(text) from public;
 grant execute on function public.elena_cupo(text) to anon, authenticated;
+
+-- ── Cambio de celular autogestionado ──
+-- Con el celular anterior en la mano: ese celular genera un código de traspaso (15 min) y el nuevo lo ingresa.
+-- Sin el anterior (perdido, roto, datos borrados): el nuevo deja un pedido y un docente lo aprueba desde el panel.
+-- Con sólo el DNI nadie mueve el vínculo: es lo que impide dar presente por otro desde un segundo celular.
+
+create table if not exists public.traspasos_celular (
+  libreta text primary key references public.alumnos(libreta) on delete cascade,
+  codigo  text not null,            -- SHA-256 del código: nunca en claro
+  vence   timestamptz not null
+);
+create table if not exists public.pedidos_celular (
+  libreta    text primary key references public.alumnos(libreta) on delete cascade,
+  huella     text not null,
+  public_jwk jsonb not null,
+  creado_en  timestamptz not null default now()
+);
+alter table public.traspasos_celular enable row level security;
+alter table public.pedidos_celular enable row level security;
+revoke all on public.traspasos_celular, public.pedidos_celular from anon, authenticated;
+
+/** La huella corresponde a la clave pública presentada (misma regla que marcar_presente). */
+create or replace function public._jwk_valido(p_huella text, p_public_jwk jsonb) returns boolean
+language sql immutable set search_path = public, extensions as $$
+  select coalesce(p_huella = encode(digest((p_public_jwk ->> 'x') || '.' || (p_public_jwk ->> 'y'), 'sha256'), 'hex'), false)
+$$;
+
+/** Deja vinculado ese celular al alumno (reemplaza al anterior) y limpia traspasos y pedidos pendientes. */
+create or replace function public._vincular(p_libreta text, p_huella text, p_public_jwk jsonb, p_detalle text, p_por text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from dispositivos where libreta = p_libreta and huella = p_huella) then
+    -- update y no delete+insert: el trigger de auditoría registraría un «celular liberado» que no fue tal.
+    update dispositivos set huella = p_huella, public_jwk = p_public_jwk, creado_en = now() where libreta = p_libreta;
+    if not found then insert into dispositivos (huella, libreta, public_jwk) values (p_huella, p_libreta, p_public_jwk); end if;
+    insert into auditoria (accion, libreta, detalle, por) values ('celular_cambiado', p_libreta, p_detalle, p_por);
+  end if;
+  delete from traspasos_celular where libreta = p_libreta;
+  delete from pedidos_celular where libreta = p_libreta;
+end $$;
+
+/** Desde el celular vinculado: genera el código de traspaso (6 caracteres, 15 minutos). */
+create or replace function public.iniciar_traspaso(p_dni text, p_huella text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare a alumnos; abc text := 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; b bytea := gen_random_bytes(6); cod text := ''; i int;
+  vence timestamptz := now() + interval '15 minutes';
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g') and not ficticio;
+  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  if not exists (select 1 from dispositivos where libreta = a.libreta and huella = p_huella) then return public._fallo('DISPOSITIVO_AJENO'); end if;
+  for i in 0..5 loop cod := cod || substr(abc, 1 + get_byte(b, i) % length(abc), 1); end loop;
+  insert into traspasos_celular (libreta, codigo, vence) values (a.libreta, encode(digest(cod, 'sha256'), 'hex'), vence)
+  on conflict (libreta) do update set codigo = excluded.codigo, vence = excluded.vence;
+  return jsonb_build_object('ok', true, 'codigo', cod, 'vence', public._ms(vence));
+end $$;
+
+/** Desde el celular nuevo: con el DNI y el código del anterior, queda vinculado este. */
+create or replace function public.completar_traspaso(p_dni text, p_codigo text, p_huella text, p_public_jwk jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare a alumnos; t traspasos_celular; ocupado text;
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  if not public._jwk_valido(p_huella, p_public_jwk) then return public._fallo('FIRMA_INVALIDA'); end if;
+  select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g') and not ficticio;
+  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  select * into t from traspasos_celular where libreta = a.libreta and vence > now();
+  -- Código equivocado o vencido: cuenta como intento fallido (límite por IP), así que no se puede adivinar.
+  if not found or t.codigo <> encode(digest(upper(regexp_replace(coalesce(p_codigo, ''), '[^A-Za-z0-9]', '', 'g')), 'sha256'), 'hex') then
+    return public._fallo('CODIGO_INVALIDO');
+  end if;
+  select libreta into ocupado from dispositivos where huella = p_huella;
+  if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO'); end if;
+  perform public._vincular(a.libreta, p_huella, p_public_jwk, 'Con el código del celular anterior', 'el alumno');
+  return jsonb_build_object('ok', true, 'nombre', public._nombre_corto(a.nombre));
+end $$;
+
+/** Sin el celular anterior: deja un pedido para que lo apruebe la cátedra. No devuelve el nombre (sólo hay un DNI). */
+create or replace function public.pedir_cambio_celular(p_dni text, p_huella text, p_public_jwk jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare a alumnos; propio text; ocupado text;
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  if not public._jwk_valido(p_huella, p_public_jwk) then return public._fallo('FIRMA_INVALIDA'); end if;
+  select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g') and not ficticio;
+  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  select huella into propio from dispositivos where libreta = a.libreta;
+  if propio is null then return public._fallo('SIN_VINCULO'); end if;        -- no hace falta: da presente y queda vinculado
+  if propio = p_huella then return public._fallo('YA_VINCULADO'); end if;
+  select libreta into ocupado from dispositivos where huella = p_huella;
+  if ocupado is not null then return public._fallo('DISPOSITIVO_OCUPADO'); end if;
+  delete from pedidos_celular where creado_en < now() - interval '14 days';
+  insert into pedidos_celular (libreta, huella, public_jwk) values (a.libreta, p_huella, p_public_jwk)
+  on conflict (libreta) do update set huella = excluded.huella, public_jwk = excluded.public_jwk, creado_en = now();
+  return jsonb_build_object('ok', true);
+end $$;
+
+/** El celular nuevo pregunta si ya lo aprobaron. */
+create or replace function public.estado_cambio_celular(p_dni text, p_huella text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare a alumnos;
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  select * into a from alumnos where dni = regexp_replace(p_dni, '\D', '', 'g') and not ficticio;
+  if not found then return public._fallo('DNI_DESCONOCIDO'); end if;
+  return jsonb_build_object('ok', true, 'estado', case
+    when exists (select 1 from dispositivos where libreta = a.libreta and huella = p_huella) then 'APROBADO'
+    when exists (select 1 from pedidos_celular where libreta = a.libreta and huella = p_huella) then 'PENDIENTE'
+    else 'SIN_PEDIDO' end);
+end $$;
+
+/** Pedidos pendientes, con lo que ayuda a decidir: desde cuándo tiene el celular actual y cuándo lo usó por última vez. */
+create or replace function public.docente_pedidos_celular() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'libreta', p.libreta, 'nombre', al.nombre, 'pedidoEn', public._ms(p.creado_en),
+      'vinculadoDesde', public._ms(d.creado_en),
+      'ultimoUso', (select public._ms(max(x.marcado_en)) from asistencias x where x.libreta = p.libreta and x.huella = d.huella)
+    ) order by p.creado_en)
+    from pedidos_celular p join alumnos al using (libreta) left join dispositivos d on d.libreta = p.libreta
+    where p.creado_en > now() - interval '14 days' and d.huella is distinct from p.huella), '[]'::jsonb);
+end $$;
+
+create or replace function public.docente_resolver_cambio(p_libreta text, p_aprobar boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare p pedidos_celular;
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  select * into p from pedidos_celular where libreta = p_libreta;
+  if not found then raise exception 'PEDIDO_INEXISTENTE'; end if;
+  if p_aprobar then
+    if exists (select 1 from dispositivos where huella = p.huella and libreta <> p_libreta) then raise exception 'DISPOSITIVO_OCUPADO'; end if;
+    perform public._vincular(p_libreta, p.huella, p.public_jwk, 'Pedido aprobado por la cátedra', auth.jwt() ->> 'email');
+  else
+    delete from pedidos_celular where libreta = p_libreta;
+    insert into auditoria (accion, libreta) values ('cambio_celular_rechazado', p_libreta);
+  end if;
+end $$;
+
+revoke execute on function public._jwk_valido(text, jsonb), public._vincular(text, text, jsonb, text, text) from public, anon, authenticated;
+revoke execute on function public.iniciar_traspaso(text, text), public.completar_traspaso(text, text, text, jsonb),
+  public.pedir_cambio_celular(text, text, jsonb), public.estado_cambio_celular(text, text),
+  public.docente_pedidos_celular(), public.docente_resolver_cambio(text, boolean) from public, anon;
+grant execute on function public.iniciar_traspaso(text, text), public.completar_traspaso(text, text, text, jsonb),
+  public.pedir_cambio_celular(text, text, jsonb), public.estado_cambio_celular(text, text) to anon, authenticated;
+grant execute on function public.docente_pedidos_celular(), public.docente_resolver_cambio(text, boolean) to authenticated;
 
 -- ── Clase de ensayo y DNIs de prueba (1.000.001 a 1.000.005) ──
 insert into public.sesiones (id, n, fecha, titulo, ensayo) values ('ensayo', 0, '2026-01-01', 'Clase de ensayo', true)

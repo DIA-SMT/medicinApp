@@ -2,7 +2,7 @@
 // Las reglas de asistencia viven en las funciones SQL de supabase/schema.sql.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { restPublico } from './rest'
-import type { AdminApi, Alumno, Cuenta, EventoAuditoria, Registro, ResumenSesion, Solicitud } from './types'
+import type { AdminApi, Alumno, Cuenta, EventoAuditoria, PedidoCelular, Registro, ResumenSesion, Solicitud } from './types'
 
 const iso = (n: number | null | undefined) => (n ? new Date(n).toISOString() : null)
 
@@ -42,6 +42,8 @@ export function crearSupabaseAdmin(): AdminApi {
     NO_AUTORIZADO: 'Sólo un administrador puede hacer esto.',
     FALTA_MOTIVO: 'Escribí el motivo de la suspensión (los alumnos lo van a ver).',
     SESION_INEXISTENTE: 'Esa clase no existe en el cronograma.',
+    PEDIDO_INEXISTENTE: 'Ese pedido ya se resolvió.',
+    DISPOSITIVO_OCUPADO: 'Ese celular ya está vinculado a otro alumno: no se puede aprobar.',
   }
   async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
     const { data, error } = await sb.rpc(fn, args)
@@ -196,6 +198,8 @@ export function crearSupabaseAdmin(): AdminApi {
     cambiarRol: (email, rol) => rpc<void>('admin_rol', { p_email: email, p_rol: rol }),
     rechazar: (email) => rpc<void>('admin_rechazar', { p_email: email }),
     suspenderClase: (sesionId, motivo) => rpc<void>('admin_suspender', { p_sesion: sesionId, p_motivo: motivo }),
+    pedidosCelular: () => rpc<PedidoCelular[]>('docente_pedidos_celular', {}),
+    resolverCambio: (libreta, aprobar) => rpc<void>('docente_resolver_cambio', { p_libreta: libreta, p_aprobar: aprobar }),
 
     // Crear cuentas y cambiar contraseñas necesita la llave de servicio: lo hace la Edge Function «admin-cuentas»,
     // que primero comprueba con el token de quien llama que sea administrador.

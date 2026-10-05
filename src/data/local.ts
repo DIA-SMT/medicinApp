@@ -7,7 +7,7 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, Progreso, PublicoApi, Registro, Solicitud } from './types'
+import type { AdminApi, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, PedidoCelular, Progreso, PublicoApi, Registro, Solicitud } from './types'
 
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
@@ -36,6 +36,8 @@ const K = {
   ventanas: 'ciclo:v1:ventanas',
   registros: 'ciclo:v1:registros',
   dispositivos: 'ciclo:v1:dispositivos',
+  traspasos: 'ciclo:v1:traspasos',
+  pedidosCelular: 'ciclo:v1:pedidos-celular',
 }
 
 function leer<T>(k: string, def: T): T {
@@ -107,6 +109,27 @@ async function validarPase(sesionId: string, pase: string): Promise<Metodo | Fal
 
 const limpiarDni = (d: string) => d.replace(/\D/g, '')
 
+/** Igual que public._vincular en SQL: reemplaza el celular del alumno y limpia traspasos y pedidos. */
+function vincularLocal(libreta: string, huella: string, detalle: string, por: string) {
+  const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
+  if (disp[huella]?.libreta !== libreta) {
+    for (const [h, d] of Object.entries(disp)) if (d.libreta === libreta) delete disp[h]
+    disp[huella] = { libreta, huella, creadoEn: Date.now() }
+    escribir(K.dispositivos, disp)
+    const log = leer<EventoAuditoria[]>(K.auditoria, [])
+    log.unshift({ accion: 'celular_cambiado', sesionId: null, libreta, detalle, en: Date.now(), por })
+    escribir(K.auditoria, log.slice(0, 300))
+  }
+  const t = leer<Record<string, unknown>>(K.traspasos, {})
+  delete t[libreta]
+  escribir(K.traspasos, t)
+  const p = leer<Record<string, unknown>>(K.pedidosCelular, {})
+  delete p[libreta]
+  escribir(K.pedidosCelular, p)
+}
+
+type PedidoLocal = { huella: string; pedidoEn: number }
+
 export function crearLocal(): PublicoApi & AdminApi {
   return {
     modo: 'demo',
@@ -153,6 +176,50 @@ export function crearLocal(): PublicoApi & AdminApi {
       if (ocupado && ocupado.libreta !== a.libreta) return fallo('DISPOSITIVO_OCUPADO')
       const propio = Object.values(disp).find((d) => d.libreta === a.libreta)
       return { ok: true, nombre: nombreCorto(a.nombre), libreta: libretaOculta(a.libreta), vinculo: !propio ? 'libre' : propio.huella === huella ? 'este' : 'otro' }
+    },
+
+    async iniciarTraspaso(dni, huella) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a) return fallo('DNI_DESCONOCIDO')
+      if (leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]?.libreta !== a.libreta) return fallo('DISPOSITIVO_AJENO')
+      const abc = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+      const codigo = Array.from(crypto.getRandomValues(new Uint8Array(6)), (n) => abc[n % abc.length]).join('')
+      const vence = Date.now() + 15 * 60e3
+      escribir(K.traspasos, { ...leer<Record<string, unknown>>(K.traspasos, {}), [a.libreta]: { codigo, vence } })
+      return { ok: true, codigo, vence }
+    },
+
+    async completarTraspaso(dni, codigo, huella, publicJwk) {
+      if (huella !== (await huellaDe(publicJwk))) return fallo('FIRMA_INVALIDA')
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a) return fallo('DNI_DESCONOCIDO')
+      const t = leer<Record<string, { codigo: string; vence: number }>>(K.traspasos, {})[a.libreta]
+      if (!t || t.vence < Date.now() || t.codigo !== codigo.replace(/[^a-z0-9]/gi, '').toUpperCase()) return fallo('CODIGO_INVALIDO')
+      const ocupado = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]
+      if (ocupado && ocupado.libreta !== a.libreta) return fallo('DISPOSITIVO_OCUPADO')
+      vincularLocal(a.libreta, huella, 'Con el código del celular anterior', 'el alumno')
+      return { ok: true, nombre: nombreCorto(a.nombre) }
+    },
+
+    async pedirCambio(dni, huella, publicJwk) {
+      if (huella !== (await huellaDe(publicJwk))) return fallo('FIRMA_INVALIDA')
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a) return fallo('DNI_DESCONOCIDO')
+      const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
+      const propio = Object.values(disp).find((d) => d.libreta === a.libreta)
+      if (!propio) return fallo('SIN_VINCULO')
+      if (propio.huella === huella) return fallo('YA_VINCULADO')
+      if (disp[huella]) return fallo('DISPOSITIVO_OCUPADO')
+      escribir(K.pedidosCelular, { ...leer<Record<string, PedidoLocal>>(K.pedidosCelular, {}), [a.libreta]: { huella, pedidoEn: Date.now() } })
+      return { ok: true }
+    },
+
+    async estadoCambio(dni, huella) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a) return fallo('DNI_DESCONOCIDO')
+      if (leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]?.libreta === a.libreta) return { ok: true, estado: 'APROBADO' }
+      if (leer<Record<string, PedidoLocal>>(K.pedidosCelular, {})[a.libreta]?.huella === huella) return { ok: true, estado: 'PENDIENTE' }
+      return { ok: true, estado: 'SIN_PEDIDO' }
     },
 
     async miAsistencia(dni, huella) {
@@ -282,6 +349,30 @@ export function crearLocal(): PublicoApi & AdminApi {
       for (const [h, d] of Object.entries(disp)) if (d.libreta === libreta) delete disp[h]
       escribir(K.dispositivos, disp)
       auditar({ accion: 'celular_liberado', sesionId: null, libreta, detalle: null })
+    },
+
+    async pedidosCelular() {
+      const pedidos = leer<Record<string, PedidoLocal>>(K.pedidosCelular, {})
+      const padron = await padronConDemo()
+      const disp = Object.values(leer<Record<string, DispositivoVinculado>>(K.dispositivos, {}))
+      const regs = leer<Registro[]>(K.registros, [])
+      return Object.entries(pedidos).map(([libreta, p]): PedidoCelular => {
+        const actual = disp.find((d) => d.libreta === libreta)
+        const usos = regs.filter((r) => r.libreta === libreta && r.huella === actual?.huella).map((r) => r.marcadoEn)
+        return { libreta, nombre: padron.find((a) => a.libreta === libreta)?.nombre ?? libreta, pedidoEn: p.pedidoEn, vinculadoDesde: actual?.creadoEn ?? null, ultimoUso: usos.length ? Math.max(...usos) : null }
+      })
+    },
+
+    async resolverCambio(libreta, aprobar) {
+      const p = leer<Record<string, PedidoLocal>>(K.pedidosCelular, {})[libreta]
+      if (!p) throw new Error('Ese pedido ya se resolvió.')
+      if (aprobar) vincularLocal(libreta, p.huella, 'Pedido aprobado por la cátedra', 'demo@catedra')
+      else {
+        const todos = leer<Record<string, PedidoLocal>>(K.pedidosCelular, {})
+        delete todos[libreta]
+        escribir(K.pedidosCelular, todos)
+        auditar({ accion: 'cambio_celular_rechazado', sesionId: null, libreta, detalle: null })
+      }
     },
 
     async terminarEnsayo() {

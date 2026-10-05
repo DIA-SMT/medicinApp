@@ -155,7 +155,9 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   CODIGO_INVALIDO: { titulo: 'Código vencido', texto: () => 'El QR proyectado cambia cada 20 segundos. Escaneá el que se ve ahora en pantalla (las capturas reenviadas no sirven).' },
   PASE_VENCIDO: { titulo: 'Se agotó el tiempo', texto: () => 'Pasaron más de 3 minutos desde que escaneaste. Volvé a escanear el QR del aula.' },
   DNI_DESCONOCIDO: { titulo: 'DNI no encontrado', texto: () => 'Ese DNI no figura en la planilla de la materia.' },
-  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Por seguridad cada alumno usa un único celular. Si cambiaste de teléfono o borraste los datos del navegador, pedile a la cátedra que lo libere o que te dé el presente a mano.' },
+  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Por seguridad cada alumno usa un único celular. Si cambiaste de teléfono o borraste los datos del navegador, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra.' },
+  SIN_VINCULO: { titulo: 'Todavía no tenés celular vinculado', texto: () => 'No hace falta pedir nada: escaneá el QR en clase desde este celular y queda vinculado.' },
+  YA_VINCULADO: { titulo: 'Este celular ya es el tuyo', texto: () => 'Ya podés dar presente desde acá.' },
   DISPOSITIVO_OCUPADO: { titulo: 'Este celular ya registró a otra persona', texto: () => 'Cada celular queda asociado a un solo alumno. Registrate desde tu propio teléfono o pedile a la cátedra el presente manual.' },
   FIRMA_INVALIDA: { titulo: 'No se pudo verificar el celular', texto: () => 'Revisá que la fecha y hora del teléfono estén en automático y volvé a intentar.', reintentar: true },
   SUSPENDIDA: { titulo: 'La clase se suspendió', texto: (d) => `${d ? `Motivo: ${d}. ` : ''}No hay que dar presente y esta clase no cuenta para la regularidad.` },
@@ -179,6 +181,7 @@ function mostrarError(sesion: Sesion | undefined, error: CodigoError, detalle?: 
       ${abre ? `<div class="mt-3 font-mono text-4xl font-semibold text-ambar tabular-nums" data-hasta="${abre}" data-fin="¡Ya abrió!">${cuenta(abre - Date.now())}</div>` : ''}
       <p class="mt-2 text-slate-600">${esc(auto ? `El registro abre ${cuandoAbre(abre)}. Dejá esta pantalla abierta: el presente se da solo en ese momento.` : e.texto(detalle))}</p>
       <div class="mt-6 flex flex-col gap-2">
+        ${error === 'DISPOSITIVO_AJENO' ? '<a href="/p/?cambio=1" class="btn btn-primario w-full !py-3">Pasar mi presente a este celular</a>' : ''}
         ${e.reintentar && reintentar ? '<button id="reintentar" class="btn btn-primario w-full !py-3">Reintentar</button>' : ''}
         ${error === 'SUSPENDIDA' ? '<a href="/p/?mia=1" class="btn btn-secundario w-full">Ver mi asistencia</a>' : '<a href="/p/" class="btn btn-secundario w-full">Ingresar el código a mano</a>'}
         <a href="${enlaceElena(`Al dar el presente me apareció «${e.titulo}». ¿Qué hago?`)}" target="_blank" rel="noopener" class="mt-1 text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Qué hago? Preguntale a Elena</a>
@@ -307,6 +310,7 @@ async function verMiAsistencia() {
         <h1 class="mt-4 text-2xl font-semibold text-tinta">Mi asistencia</h1>
         <p class="mt-2 text-slate-600">Todavía no diste presente desde este celular. La primera vez es en clase: escaneás el QR y escribís tu DNI. Desde ahí vas a poder ver acá todas tus clases.</p>
         <a href="/p/?tutorial=1" class="btn btn-secundario mt-5 w-full">Ver cómo se da el presente</a>
+        <a href="/p/?cambio=1" class="mt-4 block text-center text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Cambiaste de celular? Pasá tu asistencia a este</a>
       </div>`,
     )
   }
@@ -326,7 +330,8 @@ async function verMiAsistencia() {
         `<div class="tarjeta hud p-6 text-center">
           <div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.huella, 'h-7 w-7')}</div>
           <h1 class="mt-4 text-xl font-semibold text-tinta">Se consulta desde tu celular</h1>
-          <p class="mt-2 text-slate-600">Tu asistencia sólo se puede ver desde el celular con el que das el presente. Si cambiaste de teléfono o borraste los datos del navegador, pedile a la cátedra que libere el anterior.</p>
+          <p class="mt-2 text-slate-600">Tu asistencia sólo se puede ver desde el celular con el que das el presente. Si cambiaste de teléfono o borraste los datos del navegador, pasala a este.</p>
+          <a href="/p/?cambio=1" class="btn btn-primario mt-5 w-full !py-3">Pasar mi asistencia a este celular</a>
         </div>`,
       )
     }
@@ -365,8 +370,211 @@ async function verMiAsistencia() {
       ${bloqueProgreso(r.progreso)}
       <ol class="tarjeta mt-4 divide-y divide-slate-100 overflow-hidden">${filas}</ol>
       <p class="mt-3 text-xs text-slate-400">«No se tomó»: ese día no hubo registro de asistencia y no cuenta. Si algo no coincide con lo que recordás, avisale a la cátedra.</p>
+      <div class="tarjeta mt-4 p-4">
+        <div class="flex items-center gap-2 font-semibold text-tinta">${svg(I.huella, 'h-5 w-5 text-rosa')} ¿Vas a cambiar de celular?</div>
+        <p class="mt-1 text-sm text-slate-500">Generá un código acá y escribilo en el celular nuevo, en <b>${esc(location.host)}/p/?cambio=1</b>. Dura 15 minutos y sirve una sola vez.</p>
+        <div id="codigo-traspaso"></div>
+        <button id="traspaso" class="btn btn-secundario mt-3 w-full">Cambiar de celular</button>
+      </div>
     </div>`,
   )
+  const boton = document.getElementById('traspaso') as HTMLButtonElement
+  boton.addEventListener('click', async () => {
+    boton.disabled = true
+    const t = await (await publico()).iniciarTraspaso(dni, huella)
+    boton.disabled = false
+    const caja = document.getElementById('codigo-traspaso')!
+    if (!t.ok) {
+      caja.innerHTML = `<p class="mt-3 text-sm text-rosa-oscuro">${esc(t.error === 'RED' ? (t.detalle ?? ERRORES.RED.texto()) : ERRORES[t.error].texto(t.detalle))}</p>`
+      return
+    }
+    caja.innerHTML = `
+      <div class="pop mt-3 rounded-2xl bg-rosa-claro p-4 text-center">
+        <div class="etiqueta">Tu código</div>
+        <div class="mt-1 font-mono text-4xl font-bold tracking-[0.25em] text-tinta select-all">${esc(t.codigo)}</div>
+        <div class="mt-1 text-xs text-slate-500">Vence en <b class="font-mono tabular-nums" data-hasta="${t.vence}" data-fin="vencido: generá otro">${cuenta(t.vence - Date.now())}</b></div>
+        <p class="mt-3 text-sm text-slate-600">En el celular nuevo abrí <b>${esc(location.host)}/p/?cambio=1</b>, poné tu DNI y este código. Desde ese momento, este celular deja de servir para el presente.</p>
+      </div>`
+    boton.textContent = 'Generar otro código'
+  })
+}
+
+// ── Cambio de celular ──
+// Con el anterior en la mano: el código de «Mi asistencia». Sin él: un pedido que aprueba la cátedra.
+
+const CLAVE_PEDIDO = 'ciclo:cambio:pedido'
+const deSesion = (k: string) => {
+  try {
+    return sessionStorage.getItem(k)
+  } catch {
+    return null
+  }
+}
+
+/** Al ver «tu presente se da desde otro celular» se recuerda el DNI (nunca en la URL) y la clase a la que volver. */
+function recordarCambio(dni: string) {
+  try {
+    sessionStorage.setItem('ciclo:cambio:dni', dni)
+    if (params.get('s') && params.get('c')) sessionStorage.setItem('ciclo:cambio:volver', location.pathname + location.search)
+  } catch {
+    /* sin sessionStorage: se vuelve a escribir el DNI */
+  }
+}
+
+const MENSAJES_CAMBIO: Partial<Record<CodigoError, string>> = {
+  CODIGO_INVALIDO: 'Código incorrecto o vencido (dura 15 minutos). Generá uno nuevo en el celular anterior.',
+  DNI_DESCONOCIDO: 'Ese DNI no figura en la planilla de Ginecología. Revisalo.',
+  DISPOSITIVO_OCUPADO: 'Este celular ya está vinculado a otro alumno: usá tu propio celular.',
+  FIRMA_INVALIDA: 'No se pudo verificar este celular. Recargá la página y probá de nuevo.',
+}
+const mensajeCambio = (f: { error: CodigoError; detalle?: string }) =>
+  MENSAJES_CAMBIO[f.error] ?? (f.error === 'RED' ? (f.detalle ?? ERRORES.RED.texto()) : ERRORES[f.error].texto(f.detalle))
+
+async function cambioCelular() {
+  history.replaceState(null, '', '/p/?cambio=1')
+  if (!cryptoDisponible()) return mostrarError(undefined, 'SIN_CRYPTO')
+  let disp: Dispositivo
+  try {
+    disp = await obtenerDispositivo()
+  } catch {
+    return mostrarError(undefined, 'SIN_CRYPTO')
+  }
+  const api = await publico()
+  const dniInicial = soloDigitos(deSesion('ciclo:cambio:dni') ?? leer(CLAVE_DNI) ?? '')
+  if (leer(CLAVE_PEDIDO) && dniInicial) return esperarAprobacion(dniInicial, disp)
+
+  pintar(
+    undefined,
+    `<form id="f" class="tarjeta hud p-6">
+      <div class="grid h-12 w-12 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.huella)}</div>
+      <h1 class="mt-4 text-2xl font-semibold text-tinta">Pasar mi presente a este celular</h1>
+      <p class="mt-1 text-sm text-slate-500">Si cambiaste de teléfono o borraste los datos del navegador.</p>
+      <label class="etiqueta mt-5 block" for="dni">Tu DNI</label>
+      <input id="dni" inputmode="numeric" autocomplete="off" placeholder="Ej. 40.123.456" class="campo mt-2 font-mono text-xl tracking-[0.08em]" maxlength="11" value="${conPuntos(dniInicial)}" />
+      <div class="mt-5 rounded-2xl border border-linea p-4">
+        <div class="font-semibold text-tinta">Tengo el celular anterior</div>
+        <p class="mt-1 text-sm text-slate-500">En el anterior abrí <b>${esc(location.host)}/p/?mia=1</b> y tocá «Cambiar de celular»: te muestra un código.</p>
+        <input id="cod" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="CÓDIGO" maxlength="6" class="campo mt-3 text-center font-mono text-2xl tracking-[0.3em] uppercase" aria-label="Código del celular anterior" />
+        <button class="btn btn-primario mt-3 w-full !py-3">Pasar a este celular</button>
+      </div>
+      <div class="mt-3 rounded-2xl border border-linea p-4">
+        <div class="font-semibold text-tinta">Lo perdí, se rompió o borré los datos</div>
+        <p class="mt-1 text-sm text-slate-500">Mandá un pedido y avisale a un docente: lo aprueba desde el panel de la cátedra.</p>
+        <button id="pedir" type="button" class="btn btn-secundario mt-3 w-full !py-3">Pedírselo a la cátedra</button>
+      </div>
+      <p id="aviso" class="mt-3 min-h-5 text-sm text-rosa-oscuro" role="alert"></p>
+    </form>`,
+  )
+  const dni = document.getElementById('dni') as HTMLInputElement
+  const cod = document.getElementById('cod') as HTMLInputElement
+  const aviso = document.getElementById('aviso')!
+  const ocupado = (si: boolean) => document.querySelectorAll<HTMLButtonElement>('#f button').forEach((b) => (b.disabled = si))
+  dni.addEventListener('input', () => (dni.value = conPuntos(soloDigitos(dni.value).slice(0, 9))))
+  cod.addEventListener('input', () => (cod.value = cod.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)))
+  const dniValido = () => {
+    const d = soloDigitos(dni.value)
+    if (d.length >= 7) return d
+    aviso.textContent = 'Escribí tu DNI (al menos 7 números).'
+    dni.focus()
+    return null
+  }
+  document.getElementById('f')!.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const d = dniValido()
+    if (!d) return
+    if (cod.value.length !== 6) {
+      aviso.textContent = 'El código tiene 6 caracteres: lo ves en el celular anterior.'
+      return cod.focus()
+    }
+    ocupado(true)
+    aviso.textContent = ''
+    const r = await api.completarTraspaso(d, cod.value, disp.huella, disp.publicJwk)
+    ocupado(false)
+    if (r.ok) cambioListo(d, r.nombre)
+    else aviso.textContent = mensajeCambio(r)
+  })
+  document.getElementById('pedir')!.addEventListener('click', async () => {
+    const d = dniValido()
+    if (!d) return
+    ocupado(true)
+    aviso.textContent = ''
+    const r = await api.pedirCambio(d, disp.huella, disp.publicJwk)
+    ocupado(false)
+    if (!r.ok) return void (aviso.textContent = mensajeCambio(r))
+    guardar(CLAVE_DNI, d)
+    guardar(CLAVE_NOMBRE, null)
+    guardar(CLAVE_PEDIDO, '1')
+    esperarAprobacion(d, disp)
+  })
+  if (!dniInicial) dni.focus()
+  else cod.focus()
+}
+
+function cambioListo(dni: string, nombre: string) {
+  guardar(CLAVE_DNI, dni)
+  if (nombre) guardar(CLAVE_NOMBRE, nombre)
+  guardar(CLAVE_PEDIDO, null)
+  const volver = deSesion('ciclo:cambio:volver')
+  try {
+    sessionStorage.removeItem('ciclo:cambio:dni')
+    sessionStorage.removeItem('ciclo:cambio:volver')
+  } catch {
+    /* ok */
+  }
+  pintar(
+    undefined,
+    `<div class="tarjeta hud p-6 text-center">
+      <div class="pop mx-auto grid h-16 w-16 place-items-center rounded-full bg-vital text-white">${svg(I.check, 'h-8 w-8')}</div>
+      <h1 class="mt-4 text-2xl font-semibold text-tinta">¡Listo!</h1>
+      <p class="mt-2 text-slate-600">${nombre ? `<b>${esc(nombre)}</b> · ` : ''}Desde ahora das el presente con este celular; el anterior ya no sirve.</p>
+      ${volver?.startsWith('/p/?s=') ? `<a href="${esc(volver)}" class="btn btn-primario mt-6 w-full !py-3.5">Seguir con el presente de hoy</a>` : ''}
+      <a href="/p/?mia=1" class="btn btn-secundario mt-3 w-full">Ver mi asistencia</a>
+    </div>`,
+  )
+}
+
+/** Pedido enviado: se consulta solo cada 15 s mientras la pantalla está abierta. */
+function esperarAprobacion(dni: string, disp: Dispositivo) {
+  pintar(
+    undefined,
+    `<div id="esperando" class="tarjeta hud p-6 text-center">
+      <div class="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-ambar-suave text-ambar">${svg(I.reloj, 'h-7 w-7')}</div>
+      <h1 class="mt-4 text-xl font-semibold text-tinta">Pedido enviado</h1>
+      <p class="mt-2 text-slate-600">Avisale a un docente de la cátedra (en clase o por el canal de la materia) para que lo apruebe desde el panel. Esta pantalla se actualiza sola.</p>
+      <p class="mt-2 text-sm text-slate-500">Si hoy hay clase y no llega a aprobarse a tiempo, pedí el presente manual.</p>
+      <p id="estado-cambio" class="mt-3 min-h-5 text-sm text-slate-500" role="status"></p>
+      <button id="consultar" class="btn btn-primario mt-4 w-full">¿Ya lo aprobaron?</button>
+      <button id="otra" class="mt-4 text-sm text-slate-400 underline-offset-4 hover:underline">Tengo el código del celular anterior</button>
+    </div>`,
+  )
+  const estado = document.getElementById('estado-cambio')!
+  const consultar = async (aMano: boolean) => {
+    if (!document.getElementById('esperando')) return clearInterval(t)
+    const r = await (await publico()).estadoCambio(dni, disp.huella)
+    if (!document.getElementById('esperando')) return
+    if (r.ok && r.estado === 'APROBADO') {
+      clearInterval(t)
+      return cambioListo(dni, '')
+    }
+    if (r.ok && r.estado === 'SIN_PEDIDO') {
+      clearInterval(t)
+      guardar(CLAVE_PEDIDO, null)
+      estado.className = 'mt-3 min-h-5 text-sm text-rosa-oscuro'
+      estado.textContent = 'El pedido ya no está: puede que la cátedra lo haya rechazado. Hablalo con un docente o volvé a pedirlo.'
+      const b = document.getElementById('consultar')!
+      b.textContent = 'Volver a pedirlo'
+      b.onclick = () => cambioCelular()
+      return
+    }
+    if (aMano) estado.textContent = r.ok ? `Todavía está pendiente (revisado a las ${hmArt(Date.now())}).` : mensajeCambio(r)
+  }
+  const t = setInterval(() => consultar(false), 15_000)
+  document.getElementById('consultar')!.onclick = () => consultar(true)
+  document.getElementById('otra')!.addEventListener('click', () => {
+    clearInterval(t)
+    guardar(CLAVE_PEDIDO, null)
+    cambioCelular()
+  })
 }
 
 // ── Flujo ──
@@ -422,7 +630,10 @@ async function registrar(sesion: Sesion, codigo: string) {
     const firma = await firmar(dispositivo, `${sesion.id}|${pase!.pase}|${dni}|${ts}`)
     const ubicacion = GEO_MODO === 'off' ? null : await obtenerUbicacion(6000)
     const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })
-    if (!r.ok) return mostrarError(sesion, r.error, r.detalle, () => marcar(dni))
+    if (!r.ok) {
+      if (r.error === 'DISPOSITIVO_AJENO') recordarCambio(dni)
+      return mostrarError(sesion, r.error, r.detalle, () => marcar(dni))
+    }
     // En el ensayo no se recuerda el DNI: puede ser uno de prueba y el miércoles confundiría al dueño del celular.
     if (!sesion.ensayo) {
       guardar(CLAVE_DNI, dni)
@@ -448,7 +659,10 @@ async function registrar(sesion: Sesion, codigo: string) {
       }
       return mostrarError(sesion, r.error, r.detalle, () => identificar(dni, automatico))
     }
-    if (r.vinculo === 'otro') return mostrarError(sesion, 'DISPOSITIVO_AJENO')
+    if (r.vinculo === 'otro') {
+      recordarCambio(dni)
+      return mostrarError(sesion, 'DISPOSITIVO_AJENO')
+    }
     // Celular ya vinculado a este alumno: presente sin tocar nada.
     if (r.vinculo === 'este' && automatico) return marcar(dni)
     confirmar(dni, r.nombre, r.libreta)
@@ -661,7 +875,8 @@ publico()
     tick()
     // En la pantalla del código, los horarios reales (p. ej. una apertura manual) pueden cambiar qué mostrar.
     const cod = document.getElementById('cod') as HTMLInputElement | null
-    const enMiAsistencia = new URLSearchParams(location.search).has('mia')
+    const q = new URLSearchParams(location.search)
+    const enMiAsistencia = q.has('mia') || q.has('cambio')
     if (!(s && c) && !enMiAsistencia && (!cod || !cod.value) && !document.getElementById('video') && !document.getElementById('tutorial')) pedirCodigo()
   })
   .catch(() => {
@@ -676,6 +891,8 @@ if (s && c) {
   else mostrarError(undefined, 'SESION_INEXISTENTE')
 } else if (params.has('mia')) {
   verMiAsistencia().catch(() => mostrarError(undefined, 'RED'))
+} else if (params.has('cambio')) {
+  cambioCelular().catch(() => mostrarError(undefined, 'RED'))
 } else {
   pedirCodigo()
   // /p/?tutorial=1 (desde la portada): el paso a paso sin estar en el aula.
