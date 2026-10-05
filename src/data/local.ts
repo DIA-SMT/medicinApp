@@ -212,6 +212,9 @@ export function crearLocal(): PublicoApi & AdminApi {
       return { ok: true }
     },
     async salir() {},
+    async registrar() {
+      return { ok: true }
+    },
 
     async secreto(sesionId) {
       return secretoDe(sesionId)

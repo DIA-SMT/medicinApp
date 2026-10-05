@@ -79,6 +79,23 @@ export function crearSupabaseAdmin(): AdminApi {
       return { ok: true }
     },
 
+    async registrar(email, clave) {
+      const { data, error } = await sb.auth.signUp({ email, password: clave, options: { emailRedirectTo: `${location.origin}/#/panel` } })
+      if (error) {
+        if (/already|registered|exists/i.test(error.message)) return { ok: false, error: 'Ya hay una cuenta con ese email: ingresá con tu contraseña.' }
+        if (/password/i.test(error.message)) return { ok: false, error: 'La contraseña es demasiado débil: usá al menos 8 caracteres, mezclando letras y números.' }
+        if (/rate|limit|sending|authorized/i.test(error.message)) {
+          // El correo de confirmación puede fallar (límite del servicio de correo de Supabase); la cuenta igual
+          // puede haberse creado, y el administrador la confirma desde la base.
+          return { ok: true }
+        }
+        return { ok: false, error: `No se pudo crear la cuenta: ${error.message}` }
+      }
+      // Hasta que el administrador la habilite no tiene acceso: no dejamos una sesión abierta.
+      if (data.session) await sb.auth.signOut()
+      return { ok: true }
+    },
+
     async salir() {
       await sb.auth.signOut()
     },

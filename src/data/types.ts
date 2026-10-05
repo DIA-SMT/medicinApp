@@ -121,6 +121,11 @@ export interface AdminApi {
   /** `recordar`: si es false la sesión dura lo que el navegador abierto (PC compartida del aula). */
   ingresar(email: string, clave: string, recordar?: boolean): Promise<{ ok: boolean; error?: string }>
   salir(): Promise<void>
+  /**
+   * Crea la cuenta de un docente (email + contraseña elegidos por él). No da acceso por sí sola:
+   * el administrador tiene que agregar el email a la tabla docentes.
+   */
+  registrar(email: string, clave: string): Promise<{ ok: boolean; error?: string }>
   ventanas(): Promise<Record<string, Ventana>>
   secreto(sesionId: string): Promise<string>
   guardarVentana(sesionId: string, v: Ventana): Promise<void>
