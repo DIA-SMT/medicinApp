@@ -15,6 +15,13 @@ export function haversine(lat1: number, lng1: number, lat2: number, lng2: number
   return 2 * R * Math.asin(Math.sqrt(a))
 }
 
+/**
+ * Lejos del aula: la distancia supera el radio aun descontando el margen de error que informa el GPS
+ * (con una precisión muy mala no se puede afirmar nada, y no se marca).
+ */
+export const lejosDeSede = (distanciaM: number | null | undefined, precisionM: number | null | undefined, radioM: number) =>
+  distanciaM != null && distanciaM > radioM + (precisionM ?? 0)
+
 /** Nunca rechaza: si el permiso se niega o el GPS no responde, devuelve null. */
 export function obtenerUbicacion(timeoutMs = 8000): Promise<Ubicacion | null> {
   if (!('geolocation' in navigator)) return Promise.resolve(null)
@@ -29,7 +36,7 @@ export function obtenerUbicacion(timeoutMs = 8000): Promise<Ubicacion | null> {
         clearTimeout(t)
         res(null)
       },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60_000 },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 120_000 },
     )
   })
 }

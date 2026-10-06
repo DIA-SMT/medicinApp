@@ -89,6 +89,8 @@ const marcar = (dni, h, j, ts = Date.now(), lat = -26.8366, lng = -65.2119, p = 
   one('select marcar_presente($1,$2,$3,$4,$5::jsonb,$6,$7::bigint,$8,$9,$10) r', [SID, p, dni, h, JSON.stringify(j), 'firma-b64', ts, lat, lng, 12]).then((x) => x.r)
 r = await marcar('10000001', huella, jwk)
 ok(r.ok && r.estado === 'REGISTRADO' && /^[0-9A-F]{4}-[0-9A-F]{4}$/.test(r.comprobante) && r.distanciaM < 50, 'marcar → REGISTRADO con comprobante y distancia', r)
+const geo = await one(`select lat, lng, distancia_m from asistencias where libreta = 'MD0000001'`)
+ok(geo.lat === null && geo.lng === null && geo.distancia_m < 50, 'de la ubicación sólo se guarda la distancia, no las coordenadas', geo)
 const p = r.progreso
 ok(p && p.presentes === 1 && p.dictadas === 1 && p.dictadas + p.restantes <= 12, 'marcar devuelve el progreso: la clase en curso cuenta como dictada', p)
 r = await marcar('10000001', huella, jwk)

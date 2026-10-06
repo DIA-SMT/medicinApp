@@ -192,7 +192,7 @@ export function Inicio() {
                 </div>
               ))}
             </div>
-            <p className="px-5 pb-5 text-xs text-slate-500">El DNI sólo se usa para encontrarte en la planilla de la materia. No se pide ubicación ni se instala nada.</p>
+            <p className="px-5 pb-5 text-xs text-slate-500">El DNI sólo se usa para encontrarte en la planilla de la materia. Si el celular pide la ubicación, sólo se guarda a cuántos metros del aula diste el presente (no dónde estás), y si no la das el presente se da igual. No se instala nada.</p>
           </details>
         </Seccion>
 

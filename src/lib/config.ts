@@ -18,11 +18,12 @@ export const PASE_TTL_S = 180
 export const UMBRAL_REGULARIDAD = 70
 
 /**
- * Geocercado: 'off' no pide ubicación (registro más liviano: sólo DNI), 'registrar' la guarda y marca
- * a quien esté lejos, 'exigir' rechaza fuera del radio. Debe coincidir con la tabla `ajustes` en Supabase.
+ * Geocercado: 'off' no pide ubicación, 'registrar' guarda sólo la distancia a la sede y el panel marca a
+ * quien estaba lejos (nunca frena el presente), 'exigir' rechaza fuera del radio.
+ * Debe coincidir con la tabla `ajustes` en Supabase.
  */
 export type ModoGeo = 'off' | 'registrar' | 'exigir'
-export const GEO_MODO = 'off' as ModoGeo
+export const GEO_MODO = 'registrar' as ModoGeo
 export const SEDE = {
   nombre: 'Facultad de Medicina · UNT',
   direccion: 'Lamadrid 875, San Miguel de Tucumán',

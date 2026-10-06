@@ -98,8 +98,8 @@ CÓMO SE DA EL PRESENTE (alumnos)
 - Si la cámara no lee el QR: entrá a medicinapp.vercel.app/p/ y escribí el código de 6 dígitos que aparece debajo del QR proyectado (cambia cada 20 segundos).
 - Al terminar ves «¡Presente!» con tu nombre, la hora y una línea que dice cómo vas con el 70% (abajo, en chico, un comprobante de 8 caracteres). Si querés, sacale captura. El detalle de todas tus clases está en «Ver todas mis clases».
 - Mientras completás, una barra muestra el tiempo que queda de los 3 minutos; la tarjeta de la clase dice en vivo si el registro está abierto y cuánto falta para que cierre.
-- No se pide ubicación.
-- Hay un paso a paso con un caso ficticio (Lucía Ejemplo): aparece la primera vez que alguien va a escribir su DNI y también se puede ver en cualquier momento en medicinapp.vercel.app/p/?tutorial=1 (o desde la portada, «Ver el paso a paso con un ejemplo»). Tiene la opción «No volver a mostrar».
+- Ubicación: al dar presente el celular puede pedir permiso de ubicación. Sólo se guarda a cuántos metros del aula se dio el presente (nunca las coordenadas ni dónde está la persona) y sirve para que la cátedra vea si alguien lo dio desde lejos. Si no se da el permiso o el GPS no responde, el presente se da igual.
+- Hay un paso a paso con un caso ficticio (Lucía Ejemplo): aparece la primera vez que alguien entra a «Dar presente» sin haber escaneado, en el formulario del DNI está el enlace «¿Primera vez? Mirá cómo es», y también se puede ver en cualquier momento en medicinapp.vercel.app/p/?tutorial=1 (o desde la portada, «Ver el paso a paso con un ejemplo»). Tiene la opción «No volver a mostrar».
 
 HORARIOS Y REGLAS
 - Teóricas los miércoles y viernes a las 8:00. El registro abre a las ${APERTURA_DEFAULT} y cierra a las ${CIERRE_DEFAULT} (hora de Tucumán). El docente puede abrirlo antes, extenderlo de a 5 minutos o cerrarlo.

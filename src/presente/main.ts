@@ -6,7 +6,7 @@ import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
 import { GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
 import { firmar, obtenerDispositivo, type Dispositivo } from '../lib/device'
-import { obtenerUbicacion } from '../lib/geo'
+import { obtenerUbicacion, type Ubicacion } from '../lib/geo'
 import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, horaArt, hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { cryptoDisponible } from '../lib/totp'
 
@@ -53,6 +53,7 @@ const I = {
   camara: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   calendario: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  ubicacion: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/>',
 }
 
 // ── Estado vivo de la pantalla: un solo reloj actualiza cuentas regresivas, la barra del pase y el estado del registro ──
@@ -595,6 +596,7 @@ async function registrar(sesion: Sesion, codigo: string) {
 
   // El pase sobrevive a una recarga accidental de la página durante 3 minutos. `vence` se mide con el
   // reloj del celular (desde que llegó el pase, con 10 s de margen) para no depender de que esté en hora.
+  let ubicacionPedida: Promise<Ubicacion | null> | undefined
   const clavePase = `ciclo:pase:${sesion.id}`
   // `desfase`: servidor − celular. La firma lleva un timestamp que el servidor exige dentro de ±5 min:
   // con la hora del servidor, un celular con la hora mal configurada igual puede dar presente.
@@ -636,7 +638,8 @@ async function registrar(sesion: Sesion, codigo: string) {
     cargando(sesion, 'Registrando presente')
     const ts = Date.now() + (pase!.desfase ?? 0)
     const firma = await firmar(dispositivo, `${sesion.id}|${pase!.pase}|${dni}|${ts}`)
-    const ubicacion = GEO_MODO === 'off' ? null : await obtenerUbicacion(6000)
+    // Sólo para registrar a cuántos metros del aula se dio el presente; si no hay permiso o GPS, sigue igual.
+    const ubicacion = GEO_MODO === 'off' ? null : await (ubicacionPedida ??= obtenerUbicacion(5000))
     const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })
     if (!r.ok) {
       if (r.error === 'DISPOSITIVO_AJENO') recordarCambio(dni)
@@ -694,6 +697,7 @@ async function registrar(sesion: Sesion, codigo: string) {
         <button id="no" class="mt-3 w-full text-center text-sm text-slate-400 underline-offset-4 hover:underline">No soy yo · cambiar DNI</button>
         ${barraPase(pase!.vence)}
         <p class="mt-4 flex items-start gap-2 text-xs text-slate-400">${svg(I.huella, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Este celular queda vinculado a tu libreta: la próxima vez el presente es automático.</p>
+        ${GEO_MODO === 'off' ? '' : `<p class="mt-2 flex items-start gap-2 text-xs text-slate-400">${svg(I.ubicacion, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Si te pide la ubicación, aceptá: sólo se guarda a cuántos metros del aula estás, no dónde. Si no, el presente se da igual.</p>`}
       </div>`,
     )
     alVencerPase = vencido
@@ -751,6 +755,9 @@ async function registrar(sesion: Sesion, codigo: string) {
       if (dni.length >= 7) identificar(dni, false)
     })
   }
+
+  // Con el DNI ya guardado (el permiso de ubicación ya se respondió antes), la ubicación se pide en paralelo.
+  if (leer(CLAVE_DNI) && GEO_MODO !== 'off') ubicacionPedida ??= obtenerUbicacion(4000)
 
   const dniGuardado = leer(CLAVE_DNI)
   if (dniGuardado) await identificar(dniGuardado, true)

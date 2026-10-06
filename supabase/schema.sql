@@ -87,7 +87,7 @@ alter table public.docentes add column if not exists agregado_por text;
 
 create table if not exists public.ajustes (
   id       boolean primary key default true check (id),
-  geo_modo text not null default 'off' check (geo_modo in ('off', 'registrar', 'exigir')),
+  geo_modo text not null default 'registrar' check (geo_modo in ('off', 'registrar', 'exigir')),
   sede_lat double precision not null default -26.8364465,
   sede_lng double precision not null default -65.2120858,
   radio_m  int not null default 150
@@ -391,8 +391,9 @@ begin
     on conflict do nothing;
   end if;
 
+  -- De la ubicación sólo se guarda la distancia a la sede (y la precisión del GPS), nunca las coordenadas.
   insert into asistencias (sesion_id, libreta, metodo, lat, lng, precision_m, distancia_m, huella, firma, ip)
-  values (p_sesion, a.libreta, v, p_lat, p_lng, p_precision, round(dist::numeric, 1), p_huella, p_firma, public._ip())
+  values (p_sesion, a.libreta, v, null, null, round(p_precision::numeric, 1), round(dist::numeric, 1), p_huella, p_firma, public._ip())
   on conflict on constraint uq_alumno_sesion do nothing
   returning marcado_en into t;
 

@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CalendarOff, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CalendarOff, MapPin, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -7,7 +7,8 @@ import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, Rol, Solicitud } from '../data/types'
-import { MOTIVOS_MANUALES, UMBRAL_REGULARIDAD } from '../lib/config'
+import { MOTIVOS_MANUALES, SEDE, UMBRAL_REGULARIDAD } from '../lib/config'
+import { lejosDeSede } from '../lib/geo'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
 import { huellaCorta } from '../lib/device'
@@ -1419,12 +1420,17 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
     }
   }
 
+  // Presentes dados lejos del aula (sólo se guarda la distancia): para revisar, nunca bloquean.
+  const lejos = regs.filter((r) => r.metodo !== 'manual' && lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM))
+  const [soloLejos, setSoloLejos] = useState(false)
+  const listados = soloLejos ? lejos : regs
+
   const exportar = () =>
     descargarCsv(`asistencia-${sesion.id}.csv`, [
-      ['Libreta', 'Apellido y Nombre', 'Documento', 'Estado', 'Hora', 'Método', 'Motivo (manual)', 'Cargado por'],
+      ['Libreta', 'Apellido y Nombre', 'Documento', 'Estado', 'Hora', 'Método', 'Motivo (manual)', 'Cargado por', 'Distancia a la sede (m)', 'Precisión GPS (m)'],
       ...alumnos.map((a) => {
         const r = regs.find((x) => x.libreta === a.libreta)
-        return [a.libreta, a.nombre, a.dni, r ? 'Presente' : 'Ausente', r ? horaArt(r.marcadoEn) : '', r?.metodo ?? '', r?.motivo ?? '', r?.cargadoPor ?? '']
+        return [a.libreta, a.nombre, a.dni, r ? 'Presente' : 'Ausente', r ? horaArt(r.marcadoEn) : '', r?.metodo ?? '', r?.motivo ?? '', r?.cargadoPor ?? '', r?.distanciaM ?? '', r?.precisionM ?? '']
       }),
     ])
 
@@ -1437,6 +1443,16 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
           <span className="font-mono text-sm text-tinta">
             <span className="text-vital">{regs.length}</span> presentes · <span className="text-rosa">{ausentes.length}</span> ausentes
           </span>
+          {lejos.length > 0 && (
+            <button
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${soloLejos ? 'border-ambar bg-ambar text-white' : 'border-ambar/40 bg-ambar-suave text-ambar'}`}
+              onClick={() => (setSoloLejos((x) => !x), setVerAusentes(false))}
+              title={`Dieron presente a más de ${SEDE.radioM} m del aula (descontando el margen de error del GPS)`}
+            >
+              <MapPin className="mr-1 inline h-3.5 w-3.5" />
+              {lejos.length} lejos del aula
+            </button>
+          )}
           <button className="btn btn-secundario !py-2" onClick={() => setVerAusentes((x) => !x)}>
             {verAusentes ? 'Ver presentes' : 'Ver ausentes'}
           </button>
@@ -1461,7 +1477,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
               </tr>
             </thead>
             <tbody>
-              {regs.map((r) => (
+              {listados.map((r) => (
                 <tr key={r.libreta} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-2 font-mono text-slate-500 tabular-nums">{horaArt(r.marcadoEn)}</td>
                   <td className="px-4 py-2">
@@ -1473,7 +1489,19 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                       {r.metodo === 'qr' ? 'QR dinámico' : r.metodo === 'poster' ? 'Póster' : 'Manual'}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{r.metodo === 'manual' ? `${r.motivo ?? ''}${r.cargadoPor ? ` · ${r.cargadoPor}` : ''}` : r.distanciaM != null ? `${r.distanciaM} m de la sede` : ''}</td>
+                  <td className="px-4 py-2 text-xs text-slate-500">
+                    {r.metodo === 'manual' ? (
+                      `${r.motivo ?? ''}${r.cargadoPor ? ` · ${r.cargadoPor}` : ''}`
+                    ) : r.distanciaM != null ? (
+                      <span className={lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) ? 'font-semibold text-ambar' : ''}>
+                        {r.distanciaM >= 1000 ? `${(r.distanciaM / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM)} m`} del aula
+                        {r.precisionM != null && <span className="font-normal text-slate-400"> (±{Math.round(r.precisionM)} m)</span>}
+                        {lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) && ' · lejos'}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">sin ubicación</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <button
                       className="text-xs text-slate-400 hover:text-rosa"
