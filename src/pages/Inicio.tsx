@@ -83,10 +83,10 @@ export function Inicio() {
   const proximas = CRONOGRAMA.filter((s) => s.fecha >= hoy).slice(0, 4)
   const areas = Object.keys(AREAS) as Area[]
   const total = CRONOGRAMA.reduce((n, s) => n + s.temas.length, 0)
-  // Con la app se toma asistencia desde la clase Nº 3 (07/10); las dos primeras cuentan sólo si la cátedra las carga.
   // Las suspendidas no cuentan para nada.
   const vigentes = clasesVigentes(ventanas)
-  const conApp = vigentes.filter((s) => s.fecha >= '2026-10-07').length
+  // Se cuentan las 12 clases: las dos primeras (30/09 y 02/10, antes de la app) las carga la cátedra.
+  const conApp = vigentes.length
   const suspendidas = CRONOGRAMA.length - vigentes.length
 
   return (
@@ -204,9 +204,8 @@ export function Inicio() {
           <div className="al-ver tarjeta hud grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_auto] lg:items-center">
             <div>
               <p className="text-slate-600">
-                Se cuenta sobre las clases en las que se tomó asistencia. Con la app se toma desde el 07/10: son {conApp} clases, así que necesitás{' '}
-                <b className="text-tinta">al menos {minimo(conApp)} presentes</b> (podés faltar a {conApp - minimo(conApp)}). Si la cátedra también carga las dos
-                primeras, serían {minimo(vigentes.length)} de {vigentes.length}.
+                Se cuentan las {conApp} teóricas del cursado, así que necesitás <b className="text-tinta">al menos {minimo(conApp)} presentes</b> (podés faltar a{' '}
+                {conApp - minimo(conApp)}). Las dos primeras (30/09 y 02/10) se dictaron antes de la app: esas las carga la cátedra.
                 {suspendidas > 0 && ` ${suspendidas === 1 ? 'Hay 1 clase suspendida, que no cuenta' : `Hay ${suspendidas} clases suspendidas, que no cuentan`}.`}
               </p>
               <p className="mt-3 text-sm text-slate-500">Cada vez que das el presente, la pantalla te muestra cuántos llevás y cuántas faltas te quedan.</p>
