@@ -100,11 +100,13 @@ setInterval(tick, 1000)
 
 const MARCA = `
   <header class="flex items-center gap-2.5">
+    <a href="/" class="flex items-center gap-2.5" aria-label="Ir al inicio de Ginecoapp">
     <svg viewBox="0 0 48 48" class="h-8 w-8" aria-hidden="true"><g fill="none" stroke="#e0246f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 16.5C17 12.8 20 11 24 11s7 1.8 7 5.5c0 5.8-2.4 10.6-4.4 13.6v5c0 1.5-1.2 2.6-2.6 2.6s-2.6-1.1-2.6-2.6v-5C19.4 27.1 17 22.3 17 16.5Z"/><path d="M17.6 14.6c-3.4-3.5-8-4-10-1.1-1.4 2-.6 4.7 1.7 5.6"/><path d="M30.4 14.6c3.4-3.5 8-4 10-1.1 1.4 2 .6 4.7-1.7 5.6"/></g><ellipse cx="11.3" cy="22.6" rx="3.3" ry="2.5" fill="#f472a8"/><ellipse cx="36.7" cy="22.6" rx="3.3" ry="2.5" fill="#f472a8"/></svg>
     <div class="leading-none">
       <div class="text-[1.1rem] font-bold tracking-tight text-tinta">Gineco<span class="text-rosa">app</span></div>
       <div class="mt-1 font-mono text-[0.58rem] tracking-[0.18em] text-slate-500 uppercase">Ginecología · FM-UNT</div>
     </div>
+    </a>
     <a href="/" class="ml-auto text-xs text-slate-400 underline-offset-4 hover:underline">Inicio</a>
   </header>`
 
