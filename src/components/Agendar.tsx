@@ -1,11 +1,12 @@
-import { CalendarPlus, ChevronDown, Download } from 'lucide-react'
+import { CalendarPlus, ChevronDown, ExternalLink } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { descargarIcs, enlaceGoogle } from '../lib/agenda'
+import { enlaceGoogle, enlaceOutlook } from '../lib/agenda'
 import { CRONOGRAMA, type Sesion } from '../lib/cronograma'
-import { hoyIso, suspendida, type Ventana } from '../lib/time'
+import { diaSemana, fechaCorta, hoyIso, suspendida, type Ventana } from '../lib/time'
 
 /**
- * «Agendar»: una clase (Google Calendar o archivo .ics) o todas las que faltan (.ics con recordatorio).
+ * «Agendar»: abre Google Calendar (u Outlook) con la clase ya cargada; no se descarga ningún archivo.
+ * Con una clase, esa; sin clase, la lista de las que faltan para agendarlas de a una.
  * Es un <details> nativo: funciona con teclado y sin estado; se cierra al tocar afuera.
  */
 export function Agendar({ sesion, className = '', compacto, derecha, ventanas }: { sesion?: Sesion; className?: string; compacto?: boolean; derecha?: boolean; ventanas?: Record<string, Ventana> | null }) {
@@ -27,30 +28,43 @@ export function Agendar({ sesion, className = '', compacto, derecha, ventanas }:
         {sesion ? 'Agendar' : 'Agendar las clases'}
         <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
       </summary>
-      <div className={`entrada absolute z-30 mt-2 w-64 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl ${derecha ? 'right-0' : 'left-0'}`}>
+      <div className={`entrada absolute z-30 mt-2 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl ${sesion ? 'w-64' : 'w-80'} ${derecha ? 'right-0' : 'left-0'}`}>
         {sesion ? (
           <>
-            <a href={enlaceGoogle(sesion)} target="_blank" rel="noopener" onClick={cerrar} className="block rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
-              Google Calendar
-              <span className="block text-xs text-slate-400">Se abre con los datos de la clase</span>
+            <a href={enlaceGoogle(sesion)} target="_blank" rel="noopener" onClick={cerrar} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+              <span>
+                Google Calendar
+                <span className="block text-xs text-slate-400">Se abre con la clase ya cargada</span>
+              </span>
+              <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
             </a>
-            <button onClick={() => (descargarIcs([sesion], `ginecologia-teorica-${sesion.n}.ics`), cerrar())} className="block w-full rounded-xl px-3 py-2 text-left text-tinta hover:bg-slate-50">
-              iPhone, Outlook u otro
-              <span className="block text-xs text-slate-400">Descarga un archivo de calendario</span>
-            </button>
+            <a href={enlaceOutlook(sesion)} target="_blank" rel="noopener" onClick={cerrar} className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+              <span>
+                Outlook / Hotmail
+                <span className="block text-xs text-slate-400">Para cuentas de Microsoft</span>
+              </span>
+              <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
+            </a>
           </>
-        ) : null}
-        {restantes.length > 0 && (
-          <button
-            onClick={() => (descargarIcs(restantes, 'ginecologia-teoricas-2026.ics'), cerrar())}
-            className={`flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left text-tinta hover:bg-slate-50 ${sesion ? 'mt-1 border-t border-linea pt-2.5' : ''}`}
-          >
-            <Download className="mt-0.5 h-4 w-4 shrink-0 text-cian" />
-            <span>
-              {restantes.length === 1 ? 'La última clase' : `Las ${restantes.length} clases que faltan`}
-              <span className="block text-xs text-slate-400">Un archivo con todas, con aviso 40 min antes</span>
-            </span>
-          </button>
+        ) : restantes.length ? (
+          <>
+            <p className="px-3 pt-1.5 pb-1 text-xs text-slate-500">Tocá cada clase: se abre Google Calendar con todo cargado y la guardás.</p>
+            <ul className="max-h-80 overflow-auto">
+              {restantes.map((s) => (
+                <li key={s.id}>
+                  <a href={enlaceGoogle(s)} target="_blank" rel="noopener" className="flex items-center gap-3 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
+                    <span className="w-12 shrink-0 font-mono text-xs text-slate-500">
+                      {diaSemana(s.fecha).slice(0, 3)} {fechaCorta(s.fecha)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{s.temas.map((t) => t.titulo).join(' + ')}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="px-3 py-2 text-slate-500">Ya no quedan clases por agendar.</p>
         )}
       </div>
     </details>

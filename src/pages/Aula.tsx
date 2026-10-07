@@ -473,7 +473,7 @@ export function Aula() {
             <summary className="btn btn-secundario cursor-pointer list-none !py-2 !text-sm [&::-webkit-details-marker]:hidden">
               <MoreHorizontal className="h-4 w-4" /> Más
             </summary>
-            <div className="entrada absolute right-0 bottom-full z-30 mb-2 w-60 rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl">
+            <div className="entrada absolute bottom-full left-0 z-30 mb-2 w-60 max-w-[calc(100vw-2rem)] rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl sm:right-0 sm:left-auto">
               {abierta && !sesion.ensayo && (
                 <button onClick={copiarEnlace} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-tinta hover:bg-slate-50">
                   <Share2 className="h-4 w-4 text-vital" /> {enlaceCopiado ? '¡Enlace copiado!' : 'Copiar enlace para WhatsApp'}

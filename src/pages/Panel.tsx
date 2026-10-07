@@ -43,7 +43,7 @@ const etiquetaSesion = (s: Sesion) => `Nº ${String(s.n).padStart(2, '0')} · ${
 function SelectorSesion({ valor, onCambiar }: { valor: string; onCambiar: (id: string) => void }) {
   const { ventanas } = useVentanas()
   return (
-    <select className="campo !w-auto max-w-full !py-2.5" value={valor} onChange={(e) => onCambiar(e.target.value)}>
+    <select className="campo !w-auto max-w-full min-w-0 !py-2.5" value={valor} onChange={(e) => onCambiar(e.target.value)}>
       {CRONOGRAMA.map((s) => (
         <option key={s.id} value={s.id}>
           {etiquetaSesion(s)}
@@ -481,7 +481,9 @@ export function Panel() {
           <span className="etiqueta">Presentes por clase</span>
           <span className="font-mono text-xs text-slate-400">Clic en una barra para ver el detalle</span>
         </div>
-        <div className="mt-5 flex h-44 items-end gap-2 sm:gap-3">
+        {/* En celular las 12 barras no entran: se desplazan dentro de la tarjeta, sin mover la página. */}
+        <div className="-mx-1 mt-5 overflow-x-auto px-1 pb-1">
+        <div className="flex h-44 min-w-[30rem] items-end gap-2 sm:gap-3">
           {CRONOGRAMA.map((s) => {
             const n = registros.filter((r) => r.sesionId === s.id).length
             const f = alumnos.length ? n / alumnos.length : 0
@@ -502,6 +504,7 @@ export function Panel() {
               </button>
             )
           })}
+        </div>
         </div>
       </div>
 
@@ -816,7 +819,7 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
     !c.creada ? ['Sin cuenta todavía', 'bg-ambar-suave text-ambar'] : !c.confirmada ? ['Falta confirmar', 'bg-ambar-suave text-ambar'] : ['Activa', 'bg-vital-suave text-vital']
 
   return (
-    <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_22rem]">
+    <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-5">
         {credenciales && (
           <div className="entrada tarjeta border-vital/40 p-5">
@@ -1132,7 +1135,7 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar, avisar 
   }
 
   return (
-    <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_22rem]">
+    <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="tarjeta hud">
         <div className="space-y-3 border-b border-linea p-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -1181,7 +1184,7 @@ function CargaManual({ sesionId, onSesion, alumnos, registros, recargar, avisar 
         </div>
       </div>
 
-      <div className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+      <div className="min-w-0 space-y-5 lg:sticky lg:top-24 lg:self-start">
         <div className="tarjeta hud p-5">
           <div className="etiqueta">Seleccionados</div>
           <div className="mt-1 font-display text-4xl font-bold text-violeta tabular-nums">{seleccion.size}</div>
@@ -1467,7 +1470,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
       <SuspensionClase sesion={sesion} esAdmin={esAdmin} presentes={regs.length} avisar={avisar} />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linea p-4">
         <SelectorSesion valor={sesion.id} onCambiar={onCambiar} />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-sm text-tinta">
             <span className="text-vital">{regs.length}</span> presentes · <span className="text-rosa">{ausentes.length}</span> ausentes
           </span>

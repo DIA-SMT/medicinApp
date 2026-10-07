@@ -1,10 +1,12 @@
 // Agendar las teóricas en el calendario del celular: archivo .ics (iPhone, Outlook, la mayoría de las apps)
 // y enlace directo a Google Calendar. Todo se arma en el navegador, sin servidor.
-import { APERTURA_DEFAULT, CATEDRA, CIERRE_DEFAULT, SEDE } from './config'
+import { APERTURA_DEFAULT, CATEDRA, CIERRE_DEFAULT } from './config'
 import { docentesSesion, type Sesion } from './cronograma'
 import { instante } from './time'
 
 const HORA_CLASE = '08:00'
+/** El aula puede cambiar según la clase (p. ej. La Maternidad): se indica la cátedra, no una dirección fija. */
+const LUGAR = `Cátedra de ${CATEDRA.materia} · ${CATEDRA.facultad} UNT`
 const DURACION_MIN = 120
 
 /** 20261007T110000Z */
@@ -49,7 +51,7 @@ export function archivoIcs(sesiones: Sesion[], url = location.origin) {
       `DTEND:${utc(inicio + DURACION_MIN * 60e3)}`,
       `SUMMARY:${ics(titulo(s))}`,
       `DESCRIPTION:${ics(detalle(s, url))}`,
-      `LOCATION:${ics(`${CATEDRA.facultad}, ${SEDE.direccion}`)}`,
+      `LOCATION:${ics(LUGAR)}`,
       'BEGIN:VALARM',
       'ACTION:DISPLAY',
       'TRIGGER:-PT40M',
@@ -79,7 +81,22 @@ export function enlaceGoogle(s: Sesion, url = location.origin) {
     text: titulo(s),
     dates: `${utc(inicio)}/${utc(inicio + DURACION_MIN * 60e3)}`,
     details: detalle(s, url),
-    location: `${CATEDRA.facultad}, ${SEDE.direccion}`,
+    location: LUGAR,
   })
   return `https://calendar.google.com/calendar/render?${p}`
+}
+
+/** Outlook / Hotmail (también sirve en el calendario del iPhone si la cuenta es de Microsoft). */
+export function enlaceOutlook(s: Sesion, url = location.origin) {
+  const inicio = instante(s.fecha, HORA_CLASE)
+  const p = new URLSearchParams({
+    path: '/calendar/action/compose',
+    rru: 'addevent',
+    subject: titulo(s),
+    startdt: new Date(inicio).toISOString(),
+    enddt: new Date(inicio + DURACION_MIN * 60e3).toISOString(),
+    body: detalle(s, url),
+    location: LUGAR,
+  })
+  return `https://outlook.live.com/calendar/0/deeplink/compose?${p}`
 }

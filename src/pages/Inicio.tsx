@@ -97,7 +97,7 @@ export function Inicio() {
       <section className="relative mx-auto max-w-7xl px-4 pt-10 pb-14 sm:px-6 lg:pt-16">
         <DnaHelix className="pointer-events-none absolute top-0 right-[-4%] hidden h-[620px] w-[44%] opacity-80 lg:block" vueltas={2.1} pares={24} />
         <div className="relative grid items-center gap-10 lg:grid-cols-12">
-          <div className="entrada lg:col-span-7">
+          <div className="entrada relative lg:col-span-7 has-[details[open]]:z-40">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="inline-flex items-center gap-2 rounded-full border border-linea bg-white py-1 pr-3 pl-1 shadow-sm">
                 <SelloUNT className="h-6 w-auto rounded-full" />
