@@ -6,7 +6,7 @@ import { MarcoProgreso, QrCode } from '../components/QrCode'
 import { PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { ResumenSesion } from '../data/types'
-import { TOTP_PASO_S } from '../lib/config'
+import { CATEDRA, TOTP_PASO_S } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, docentesSesion, sesionPorId } from '../lib/cronograma'
 import { enlaceRegistro } from '../lib/enlaces'
 import { nombreCorto } from '../lib/format'
@@ -191,7 +191,7 @@ export function Aula() {
             <SelloUNT className="h-9 w-auto" />
             <div className="leading-tight">
               <div className="text-sm font-semibold text-tinta">Cátedra de Ginecología</div>
-              <div className="text-xs text-slate-500">Facultad de Medicina · UNT</div>
+              <div className="text-xs text-slate-500">{CATEDRA.titularCorta}</div>
             </div>
           </div>
         </div>
@@ -210,7 +210,7 @@ export function Aula() {
             </span>
           )}
           {medido && Math.abs(desfase) > 15_000 && (
-            <span className="hidden rounded-full border border-ambar/30 bg-ambar-suave px-2.5 py-1 text-xs font-medium text-ambar sm:inline" title="El reloj de esta computadora está desfasado. CICLO usa la hora del servidor, así que el QR funciona igual.">
+            <span className="hidden rounded-full border border-ambar/30 bg-ambar-suave px-2.5 py-1 text-xs font-medium text-ambar sm:inline" title="El reloj de esta computadora está desfasado. Ginecoapp usa la hora del servidor, así que el QR funciona igual.">
               Reloj de la PC corregido ({desfase > 0 ? '+' : ''}{Math.round(desfase / 1000)} s)
             </span>
           )}

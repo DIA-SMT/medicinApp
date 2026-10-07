@@ -112,6 +112,9 @@ export function Inicio() {
               <span className="block text-2xl font-medium text-slate-500 sm:text-3xl">Cátedra de</span>
               <span className="texto-gradiente block pb-1 text-[3.4rem] sm:text-7xl lg:text-[5.6rem]">Ginecología</span>
             </h1>
+            <p className="mt-4 text-lg font-semibold text-rosa-oscuro sm:text-xl">
+              Profesora Titular <span className="text-tinta">{CATEDRA.titular}</span>
+            </p>
             <p className="mt-6 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
               Teóricas de miércoles y viernes a las 8:00. Para dar el presente <span className="font-medium text-tinta">escaneás el QR del aula</span>: la
               primera vez ponés tu DNI y después es automático. Para quedar regular necesitás el{' '}

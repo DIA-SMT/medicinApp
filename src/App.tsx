@@ -20,7 +20,7 @@ function titulo(pathname: string) {
   const clase = id ? sesionPorId(id) : undefined
   const n = clase ? ` · Clase Nº ${clase.n}` : ''
   const nombres: Record<string, string> = { cronograma: 'Cronograma', panel: 'Panel de la cátedra', aula: `Proyector${n}`, poster: `Póster${n}` }
-  return nombres[ruta] ? `${nombres[ruta]} · CICLO` : 'CICLO · Ginecología FM-UNT'
+  return nombres[ruta] ? `${nombres[ruta]} · Ginecoapp` : 'Ginecoapp · Ginecología FM-UNT'
 }
 
 function Titulo() {

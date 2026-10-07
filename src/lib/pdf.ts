@@ -1,9 +1,9 @@
-// Documentos PDF con el diseño de CICLO (logos, franja rosa, tipografía y colores de la app).
+// Documentos PDF con el diseño de Ginecoapp (logos, franja rosa, tipografía y colores de la app).
 // Se carga bajo demanda desde el panel: jsPDF sólo se descarga cuando alguien toca «Descargar».
 import { jsPDF } from 'jspdf'
 import { autoTable, type CellHookData } from 'jspdf-autotable'
 import type { Alumno, Registro } from '../data/types'
-import { CATEDRA, UMBRAL_REGULARIDAD } from './config'
+import { APP, CATEDRA, UMBRAL_REGULARIDAD } from './config'
 import { docentesSesion, type Sesion } from './cronograma'
 import { diaSemana, fechaCorta, horaArt, hoyIso } from './time'
 
@@ -78,22 +78,24 @@ function marco(doc: jsPDF, l: Awaited<ReturnType<typeof logos>>, subtitulo: stri
   }
   if (l.unt) doc.addImage(l.unt.data, 'PNG', 12, 7, 11, 11 * l.unt.proporcion)
   doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...C.gris)
-  doc.text(`${CATEDRA.universidad.toUpperCase()} · ${CATEDRA.facultad.toUpperCase()}`, 26, 10.5)
+  doc.text(`${CATEDRA.universidad.toUpperCase()} · ${CATEDRA.facultad.toUpperCase()}`, 26, 9.8)
   doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...C.tinta)
-  doc.text(`Cátedra de ${CATEDRA.materia}`, 26, 15.5)
-  doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...C.gris)
-  doc.text(subtitulo, 26, 19.5)
+  doc.text(`Cátedra de ${CATEDRA.materia}`, 26, 14.6)
+  doc.setFont('helvetica', 'bold').setFontSize(7.5).setTextColor(...C.rosaOscuro)
+  doc.text(CATEDRA.titularCompleta, 26, 18.4)
+  doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(...C.gris)
+  doc.text(subtitulo, 26, 21.9)
   if (l.ciclo) doc.addImage(l.ciclo.data, 'PNG', W - 33, 7.5, 9, 9)
   doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(...C.tinta)
-  doc.text('CICLO', W - 12, 13.5, { align: 'right', charSpace: 0.9 })
+  doc.text(APP, W - 12, 13.5, { align: 'right', charSpace: 0.3 })
   doc.setFont('helvetica', 'normal').setFontSize(6).setTextColor(...C.grisClaro)
   doc.text('ASISTENCIA A TEÓRICAS', W - 12, 17, { align: 'right', charSpace: 0.3 })
-  doc.setDrawColor(...C.linea).setLineWidth(0.3).line(12, 23, W - 12, 23)
+  doc.setDrawColor(...C.linea).setLineWidth(0.3).line(12, 24.2, W - 12, 24.2)
 
   // Pie
   doc.line(12, H - 11, W - 12, H - 11)
   doc.setFontSize(7).setTextColor(...C.gris)
-  doc.text(`CICLO · ${location.host}`, 12, H - 6.5)
+  doc.text(`${APP} · ${CATEDRA.titularCorta} · ${location.host}`, 12, H - 6.5)
   doc.text(`Generado el ${ahoraTexto()} h`, W / 2, H - 6.5, { align: 'center' })
   doc.text(`Página ${doc.getCurrentPageInfo().pageNumber} de {total}`, W - 12, H - 6.5, { align: 'right' })
 }

@@ -1,6 +1,7 @@
 // Tutorial «Cómo dar el presente» con un caso ficticio (Lucía Ejemplo, DNI 10.000.001).
 // Muestra las mismas pantallas que va a ver el alumno, en miniatura y con animaciones CSS.
 // Se carga aparte (import dinámico): quien ya está registrado nunca lo descarga.
+import { UMBRAL_REGULARIDAD } from '../lib/config'
 
 export const CLAVE_OCULTO = 'ciclo:tutorial:oculto'
 
@@ -94,7 +95,7 @@ const PASOS = [
   { titulo: 'Escaneá el QR del aula', texto: 'Abrí la cámara del celular, apuntá al QR que se proyecta y tocá el enlace que aparece. No hay que instalar nada.' },
   { titulo: 'Escribí tu DNI', texto: 'Sólo la primera vez, sin puntos: se agregan solos. En este ejemplo, Lucía escribe 10.000.001 y toca «Continuar».' },
   { titulo: 'Confirmá que sos vos', texto: 'Aparece tu nombre. Si es correcto, tocá «Sí, dar presente». Desde ahí tu celular queda vinculado a tu libreta.' },
-  { titulo: '¡Presente!', texto: 'Ves la hora, un comprobante y cuántos presentes llevás para llegar al 70%. Podés cerrar la pantalla.' },
+  { titulo: '¡Presente!', texto: `Ves la hora, un comprobante y cuántos presentes llevás para llegar al ${UMBRAL_REGULARIDAD}%. Podés cerrar la pantalla.` },
   { titulo: 'Las clases siguientes', texto: 'Escaneás y listo: el presente se da solo. Usá siempre tu celular y el mismo navegador (no el modo incógnito).' },
 ]
 

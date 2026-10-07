@@ -33,7 +33,7 @@ function ConNegritas({ texto }: { texto: string }) {
 }
 
 /**
- * Elena — la asistente de CICLO — flotante en la portada, el cronograma y el panel.
+ * Elena — la asistente de Ginecoapp — flotante en la portada, el cronograma y el panel.
  * Se abre sola con /#/?elena=1 y, si además viene &q=…, manda esa pregunta (lo usa /p/ ante un error).
  */
 export function Elena() {
@@ -116,7 +116,7 @@ export function Elena() {
           <div className="leading-tight">
             <div className="text-sm font-semibold text-tinta">Elena</div>
             <div className="flex items-center gap-1.5 text-[0.68rem] text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-vital" /> Asistente de CICLO · asistencia y regularidad
+              <span className="h-1.5 w-1.5 rounded-full bg-vital" /> Asistente de Ginecoapp · asistencia y regularidad
             </div>
           </div>
         </div>

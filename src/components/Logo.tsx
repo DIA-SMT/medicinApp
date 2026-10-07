@@ -34,7 +34,9 @@ export function Marca({ compacta }: { compacta?: boolean }) {
       </div>
       {!compacta && (
         <div className="leading-none max-[379px]:hidden">
-          <div className="font-display text-[1.15rem] font-bold tracking-[0.22em] text-tinta">CICLO</div>
+          <div className="font-display text-[1.2rem] font-bold tracking-tight text-tinta">
+            Gineco<span className="text-rosa">app</span>
+          </div>
           <div className="mt-1 hidden font-mono text-[0.62rem] tracking-[0.2em] whitespace-nowrap text-slate-500 uppercase sm:block">Ginecología · FM-UNT</div>
         </div>
       )}

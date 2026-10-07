@@ -1,6 +1,6 @@
 {
-  "name": "CICLO · Ginecología FM-UNT",
-  "short_name": "CICLO",
+  "name": "Ginecoapp · Ginecología FM-UNT",
+  "short_name": "Ginecoapp",
   "description": "Asistencia con QR dinámico — Cátedra de Ginecología, Facultad de Medicina UNT",
   "start_url": "/p/",
   "display": "standalone",

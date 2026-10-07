@@ -9,6 +9,7 @@ export function Pie() {
           <SelloUNT className="h-14 w-auto" />
           <div>
             <div className="font-display font-semibold text-tinta">Cátedra de {CATEDRA.materia}</div>
+            <div className="text-sm font-medium text-rosa-oscuro">{CATEDRA.titularCompleta}</div>
             <div className="text-sm text-slate-500">
               {CATEDRA.facultad} · {CATEDRA.universidad}
             </div>
@@ -17,7 +18,7 @@ export function Pie() {
         </div>
         <div className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.2em] text-slate-400 uppercase">
           <UteroMark className="h-5 w-5" />
-          CICLO · asistencia a teóricas · 2026
+          Ginecoapp · asistencia a teóricas · 2026
         </div>
       </div>
     </footer>

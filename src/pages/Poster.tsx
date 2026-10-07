@@ -77,11 +77,12 @@ export function Poster() {
               <div className="text-[11pt] font-semibold">{CATEDRA.universidad}</div>
               <div className="text-[10pt] text-[#4b5575]">{CATEDRA.facultad}</div>
               <div className="font-display text-[15pt] font-bold">Cátedra de {CATEDRA.materia}</div>
+              <div className="text-[10pt] font-semibold text-[#b0124f]">{CATEDRA.titularCompleta}</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <UteroMark className="h-[14mm] w-[14mm]" />
-            <div className="font-display text-[15pt] font-bold tracking-[0.25em]">CICLO</div>
+            <div className="font-display text-[15pt] font-bold">Ginecoapp</div>
           </div>
         </header>
 

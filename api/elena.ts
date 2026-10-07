@@ -1,4 +1,4 @@
-// Elena, la asistente de CICLO: Vercel Function que responde dudas sobre la asistencia y la app.
+// Elena, la asistente de Ginecoapp: Vercel Function que responde dudas sobre la asistencia y la app.
 // Es pública (la usan los alumnos sin cuenta), así que cada pregunta pasa por un cupo en Supabase
 // (elena_cupo: por IP y por día) y la respuesta se acota en largo. La clave del modelo vive sólo en Vercel.
 import { sistemaElena, type FilaSesion } from './_elena.js'
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', 'x-title': 'CICLO Elena' },
+    headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', 'x-title': 'Ginecoapp Elena' },
     body: JSON.stringify({
       model: process.env.OPENROUTER_MODEL ?? 'anthropic/claude-haiku-4.5',
       max_tokens: 600,

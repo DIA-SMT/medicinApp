@@ -60,7 +60,7 @@ export function archivoIcs(sesiones: Sesion[], url = location.origin) {
       .map(plegar)
       .join('\r\n')
   })
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CICLO//Ginecologia FM-UNT//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...eventos, 'END:VCALENDAR'].join('\r\n')
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ginecoapp//Ginecologia FM-UNT//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...eventos, 'END:VCALENDAR'].join('\r\n')
 }
 
 export function descargarIcs(sesiones: Sesion[], nombre: string) {

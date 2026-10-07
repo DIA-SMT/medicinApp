@@ -7,7 +7,7 @@ import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
 import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, Rol, Solicitud } from '../data/types'
-import { MOTIVOS_MANUALES, SEDE, UMBRAL_REGULARIDAD } from '../lib/config'
+import { CATEDRA, MOTIVOS_MANUALES, SEDE, UMBRAL_REGULARIDAD } from '../lib/config'
 import { lejosDeSede } from '../lib/geo'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
@@ -32,7 +32,7 @@ interface Fila {
 
 const leerUmbral = () => {
   try {
-    return Number(localStorage.getItem('ciclo:umbral')) || UMBRAL_REGULARIDAD
+    return Number(localStorage.getItem('ciclo:umbral:75')) || UMBRAL_REGULARIDAD
   } catch {
     return UMBRAL_REGULARIDAD
   }
@@ -284,7 +284,7 @@ export function Panel() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('ciclo:umbral', String(umbral))
+      localStorage.setItem('ciclo:umbral:75', String(umbral))
     } catch {
       /* sin almacenamiento */
     }
@@ -396,7 +396,7 @@ export function Panel() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="etiqueta mb-2 flex items-center gap-2">
-            <span className="h-px w-6 bg-gradient-to-r from-rosa to-cian" /> Cátedra de Ginecología · 4º Cursado 2026
+            <span className="h-px w-6 bg-gradient-to-r from-rosa to-cian" /> Cátedra de Ginecología · {CATEDRA.titularCorta} · 4º Cursado 2026
           </div>
           <h1 className="font-display text-3xl font-bold text-tinta sm:text-4xl">Panel de asistencia</h1>
         </div>
@@ -793,7 +793,7 @@ function Cuentas({ avisar, alCambiar }: { avisar: Avisar; alCambiar: () => void 
   }
 
   const textoCredenciales = credenciales
-    ? `Acceso a CICLO (cátedra de Ginecología)\n${location.origin}/#/panel\nEmail: ${credenciales.email}\nContraseña: ${credenciales.clave}\nAl entrar, cambiala en «Mi contraseña».`
+    ? `Acceso a Ginecoapp (cátedra de Ginecología)\n${location.origin}/#/panel\nEmail: ${credenciales.email}\nContraseña: ${credenciales.clave}\nAl entrar, cambiala en «Mi contraseña».`
     : ''
   const copiar = async () => {
     if (!credenciales) return

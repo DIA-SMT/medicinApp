@@ -15,7 +15,7 @@ export const TOTP_TOLERANCIA = 1 // ± pasos aceptados para absorber desfase de 
 export const PASE_TTL_S = 180
 
 /** Porcentaje mínimo de asistencia a teóricas para quedar "Regular". */
-export const UMBRAL_REGULARIDAD = 70
+export const UMBRAL_REGULARIDAD = 75
 
 /**
  * Geocercado: 'off' no pide ubicación, 'registrar' guarda sólo la distancia a la sede y el panel marca a
@@ -32,8 +32,15 @@ export const SEDE = {
   radioM: 150,
 }
 
+/** Nombre visible de la app (las claves internas de almacenamiento siguen con el prefijo «ciclo»). */
+export const APP = 'Ginecoapp'
+
 export const CATEDRA = {
   materia: 'Ginecología',
+  /** Profesora Titular: va en la portada y en cada encabezado donde se nombra a la cátedra. */
+  titular: 'Dra. Rossana E. Chahla',
+  titularCompleta: 'Profesora Titular Dra. Rossana E. Chahla',
+  titularCorta: 'Prof. Titular Dra. Rossana E. Chahla',
   codigo: 'I54(39)',
   facultad: 'Facultad de Medicina',
   universidad: 'Universidad Nacional de Tucumán',

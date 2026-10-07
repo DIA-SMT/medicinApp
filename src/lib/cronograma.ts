@@ -42,7 +42,7 @@ export interface Sesion {
 export const CRONOGRAMA: Sesion[] = [
   {
     id: '2026-09-30', n: 1, fecha: '2026-09-30',
-    temas: [{ titulo: 'Eje hipotálamo-hipófiso-ovárico', detalle: 'Ciclo sexual', docente: 'Prof. Dra. Rossana Chahla', area: 'endocrino' }],
+    temas: [{ titulo: 'Eje hipotálamo-hipófiso-ovárico', detalle: 'Ciclo sexual', docente: 'Prof. Titular Dra. Rossana E. Chahla', area: 'endocrino' }],
   },
   {
     id: '2026-10-02', n: 2, fecha: '2026-10-02',
@@ -50,7 +50,7 @@ export const CRONOGRAMA: Sesion[] = [
   },
   {
     id: '2026-10-07', n: 3, fecha: '2026-10-07',
-    temas: [{ titulo: 'Síndrome ovárico metabólico poliendócrino', detalle: 'SOMP', docente: 'Prof. Dra. Rossana Chahla', area: 'endocrino' }],
+    temas: [{ titulo: 'Síndrome ovárico metabólico poliendócrino', detalle: 'SOMP', docente: 'Prof. Titular Dra. Rossana E. Chahla', area: 'endocrino' }],
   },
   {
     id: '2026-10-09', n: 4, fecha: '2026-10-09',
