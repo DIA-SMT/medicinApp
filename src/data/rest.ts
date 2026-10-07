@@ -97,6 +97,11 @@ export const restPublico: PublicoApi = {
   pedirCambio: (dni, huella, publicJwk) => rpc('pedir_cambio_celular', { p_dni: dni, p_huella: huella, p_public_jwk: publicJwk }),
   estadoCambio: (dni, huella) => rpc('estado_cambio_celular', { p_dni: dni, p_huella: huella }),
 
+  valorarClase: (dni, huella, sesionId, puntaje, comentario) =>
+    rpc('valorar_clase', { p_dni: dni, p_huella: huella, p_sesion: sesionId, p_puntaje: puntaje, p_comentario: comentario }),
+  enviarConsulta: (dni, huella, texto) => rpc('enviar_consulta', { p_dni: dni, p_huella: huella, p_texto: texto }),
+  misConsultas: (dni, huella) => rpc('mis_consultas', { p_dni: dni, p_huella: huella }),
+
   marcar: (p) =>
     rpc<ResultadoMarca>('marcar_presente', {
       p_sesion: p.sesionId, p_pase: p.pase, p_dni: p.dni, p_huella: p.huella, p_public_jwk: p.publicJwk,

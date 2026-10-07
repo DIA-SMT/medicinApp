@@ -439,7 +439,10 @@ begin
         -- dictada = ya pasó y se tomó asistencia (misma regla que el panel); una suspendida nunca cuenta
         'dictada', not s.suspendida and s.fecha <= hoy and exists (select 1 from asistencias t where t.sesion_id = s.id),
         'suspendida', s.suspendida,
-        'marca', x.metodo
+        'marca', x.metodo,
+        -- Valoración: sólo de clases a las que fue, ya cerrado el registro (ver valorar_clase)
+        'valorable', x.libreta is not null and not s.suspendida and public._estado(s) = 'cerrada',
+        'valoracion', (select v.puntaje from valoraciones v where v.sesion_id = s.id and v.libreta = a.libreta)
       ) order by s.fecha)
       from sesiones s left join asistencias x on x.sesion_id = s.id and x.libreta = a.libreta
       where not s.ensayo
@@ -890,6 +893,138 @@ revoke execute on function public.iniciar_traspaso(text, text), public.completar
 grant execute on function public.iniciar_traspaso(text, text), public.completar_traspaso(text, text, text, jsonb),
   public.pedir_cambio_celular(text, text, jsonb), public.estado_cambio_celular(text, text) to anon, authenticated;
 grant execute on function public.docente_pedidos_celular(), public.docente_resolver_cambio(text, boolean) to authenticated;
+
+-- ── Valoración de las clases (1 a 5 estetoscopios) y buzón de consultas ──
+-- Las dos se usan desde el celular vinculado del alumno (DNI + huella, como «Mi asistencia»).
+-- La valoración es anónima para la cátedra: se guarda la libreta sólo para que nadie vote dos veces
+-- ni valore una clase a la que no fue; el panel recibe promedios y comentarios sin nombres.
+
+create table if not exists public.valoraciones (
+  sesion_id  text not null references public.sesiones(id) on delete cascade,
+  libreta    text not null references public.alumnos(libreta) on delete cascade,
+  puntaje    int  not null check (puntaje between 1 and 5),
+  comentario text check (char_length(comentario) <= 500),
+  creado_en  timestamptz not null default now(),
+  primary key (sesion_id, libreta)
+);
+create table if not exists public.consultas (
+  id             bigint generated always as identity primary key,
+  libreta        text not null references public.alumnos(libreta) on delete cascade,
+  texto          text not null check (char_length(texto) between 5 and 1000),
+  creado_en      timestamptz not null default now(),
+  respuesta      text check (char_length(respuesta) <= 2000),
+  respondida_por text,
+  respondida_en  timestamptz
+);
+create index if not exists idx_consultas_libreta on public.consultas (libreta, creado_en desc);
+alter table public.valoraciones enable row level security;
+alter table public.consultas enable row level security;
+revoke all on public.valoraciones, public.consultas from anon, authenticated;
+
+/** El alumno dueño de ese celular, o null. Misma regla que «Mi asistencia». */
+create or replace function public._alumno_del_celular(p_dni text, p_huella text) returns alumnos
+language sql stable security definer set search_path = public as $$
+  select a.* from alumnos a join dispositivos d on d.libreta = a.libreta and d.huella = p_huella
+  where a.dni = regexp_replace(coalesce(p_dni, ''), '\D', '', 'g') and not a.ficticio
+$$;
+
+create or replace function public.valorar_clase(p_dni text, p_huella text, p_sesion text, p_puntaje int, p_comentario text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare a alumnos; s sesiones; c text := nullif(left(trim(coalesce(p_comentario, '')), 500), '');
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  a := public._alumno_del_celular(p_dni, p_huella);
+  if a.libreta is null then return public._fallo('DISPOSITIVO_AJENO'); end if;
+  select * into s from sesiones where id = p_sesion and not ensayo;
+  if not found then return public._fallo('SESION_INEXISTENTE'); end if;
+  if p_puntaje is null or p_puntaje not between 1 and 5 then return jsonb_build_object('ok', false, 'error', 'NO_VALORABLE', 'detalle', 'El puntaje va de 1 a 5.'); end if;
+  if s.suspendida or not exists (select 1 from asistencias where sesion_id = s.id and libreta = a.libreta) then
+    return jsonb_build_object('ok', false, 'error', 'NO_VALORABLE', 'detalle', 'Sólo se valoran las clases en las que diste presente.');
+  end if;
+  if public._estado(s) <> 'cerrada' then
+    return jsonb_build_object('ok', false, 'error', 'NO_VALORABLE', 'detalle', 'Vas a poder valorarla cuando termine la clase.');
+  end if;
+  insert into valoraciones (sesion_id, libreta, puntaje, comentario) values (s.id, a.libreta, p_puntaje, c)
+  on conflict (sesion_id, libreta) do update set puntaje = excluded.puntaje, comentario = excluded.comentario, creado_en = now();
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.enviar_consulta(p_dni text, p_huella text, p_texto text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare a alumnos; t text := trim(coalesce(p_texto, ''));
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  a := public._alumno_del_celular(p_dni, p_huella);
+  if a.libreta is null then return public._fallo('DISPOSITIVO_AJENO'); end if;
+  if char_length(t) < 5 or char_length(t) > 1000 then
+    return jsonb_build_object('ok', false, 'error', 'CONSULTA_INVALIDA', 'detalle', 'Escribí tu consulta (entre 5 y 1000 caracteres).');
+  end if;
+  -- Límites para que nadie llene el buzón: 3 sin responder a la vez y 5 por día.
+  if (select count(*) from consultas where libreta = a.libreta and respuesta is null) >= 3
+     or (select count(*) from consultas where libreta = a.libreta and creado_en > now() - interval '1 day') >= 5 then
+    return jsonb_build_object('ok', false, 'error', 'CONSULTA_INVALIDA', 'detalle', 'Ya tenés varias consultas esperando respuesta. Esperá a que te contesten.');
+  end if;
+  insert into consultas (libreta, texto) values (a.libreta, t);
+  return jsonb_build_object('ok', true);
+end $$;
+
+create or replace function public.mis_consultas(p_dni text, p_huella text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare a alumnos;
+begin
+  if public._bloqueado() then return jsonb_build_object('ok', false, 'error', 'RED', 'detalle', 'Demasiados intentos. Esperá un minuto.'); end if;
+  a := public._alumno_del_celular(p_dni, p_huella);
+  if a.libreta is null then return public._fallo('DISPOSITIVO_AJENO'); end if;
+  return jsonb_build_object('ok', true, 'consultas', coalesce((
+    select jsonb_agg(jsonb_build_object('id', id, 'texto', texto, 'creadaEn', public._ms(creado_en), 'respuesta', respuesta, 'respondidaEn', public._ms(respondida_en)) order by creado_en desc)
+    from consultas where libreta = a.libreta), '[]'::jsonb));
+end $$;
+
+/** Valoraciones por clase para la cátedra: sin libretas ni nombres. */
+create or replace function public.docente_valoraciones() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  return coalesce((
+    select jsonb_object_agg(sesion_id, r) from (
+      select sesion_id, jsonb_build_object(
+        'cantidad', count(*),
+        'promedio', round(avg(puntaje)::numeric, 2),
+        'porPuntaje', jsonb_build_array(count(*) filter (where puntaje = 1), count(*) filter (where puntaje = 2), count(*) filter (where puntaje = 3), count(*) filter (where puntaje = 4), count(*) filter (where puntaje = 5)),
+        -- comentarios mezclados por fecha y sin datos del alumno
+        'comentarios', coalesce(jsonb_agg(jsonb_build_object('puntaje', puntaje, 'texto', comentario) order by creado_en desc) filter (where comentario is not null), '[]'::jsonb)
+      ) r
+      from valoraciones group by sesion_id) x), '{}'::jsonb);
+end $$;
+
+create or replace function public.docente_consultas() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', c.id, 'libreta', c.libreta, 'nombre', a.nombre, 'texto', c.texto, 'creadaEn', public._ms(c.creado_en),
+      'respuesta', c.respuesta, 'respondidaPor', c.respondida_por, 'respondidaEn', public._ms(c.respondida_en)
+    ) order by (c.respuesta is null) desc, c.creado_en desc)
+    from consultas c join alumnos a using (libreta)
+    where c.respuesta is null or c.respondida_en > now() - interval '30 days'), '[]'::jsonb);
+end $$;
+
+create or replace function public.docente_responder_consulta(p_id bigint, p_respuesta text) returns void
+language plpgsql security definer set search_path = public as $$
+declare r text := nullif(left(trim(coalesce(p_respuesta, '')), 2000), '');
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  if r is null then raise exception 'FALTA_RESPUESTA'; end if;
+  update consultas set respuesta = r, respondida_por = auth.jwt() ->> 'email', respondida_en = now() where id = p_id;
+  if not found then raise exception 'CONSULTA_INEXISTENTE'; end if;
+end $$;
+
+revoke execute on function public._alumno_del_celular(text, text) from public, anon, authenticated;
+revoke execute on function public.valorar_clase(text, text, text, int, text), public.enviar_consulta(text, text, text), public.mis_consultas(text, text),
+  public.docente_valoraciones(), public.docente_consultas(), public.docente_responder_consulta(bigint, text) from public, anon;
+grant execute on function public.valorar_clase(text, text, text, int, text), public.enviar_consulta(text, text, text), public.mis_consultas(text, text) to anon, authenticated;
+grant execute on function public.docente_valoraciones(), public.docente_consultas(), public.docente_responder_consulta(bigint, text) to authenticated;
 
 -- ── Clase de ensayo y DNIs de prueba (1.000.001 a 1.000.005) ──
 insert into public.sesiones (id, n, fecha, titulo, ensayo) values ('ensayo', 0, '2026-01-01', 'Clase de ensayo', true)

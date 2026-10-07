@@ -2,7 +2,7 @@
 // Las reglas de asistencia viven en las funciones SQL de supabase/schema.sql.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { restPublico } from './rest'
-import type { AdminApi, Alumno, Cuenta, EventoAuditoria, PedidoCelular, Registro, ResumenSesion, Solicitud } from './types'
+import type { AdminApi, Alumno, ConsultaBuzon, Cuenta, EventoAuditoria, PedidoCelular, Registro, ResumenSesion, ResumenValoracion, Solicitud } from './types'
 
 const iso = (n: number | null | undefined) => (n ? new Date(n).toISOString() : null)
 
@@ -43,6 +43,8 @@ export function crearSupabaseAdmin(): AdminApi {
     FALTA_MOTIVO: 'Escribí el motivo de la suspensión (los alumnos lo van a ver).',
     SESION_INEXISTENTE: 'Esa clase no existe en el cronograma.',
     PEDIDO_INEXISTENTE: 'Ese pedido ya se resolvió.',
+    FALTA_RESPUESTA: 'Escribí la respuesta.',
+    CONSULTA_INEXISTENTE: 'Esa consulta ya no existe.',
     DISPOSITIVO_OCUPADO: 'Ese celular ya está vinculado a otro alumno: no se puede aprobar.',
   }
   async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
@@ -200,6 +202,12 @@ export function crearSupabaseAdmin(): AdminApi {
     suspenderClase: (sesionId, motivo) => rpc<void>('admin_suspender', { p_sesion: sesionId, p_motivo: motivo }),
     pedidosCelular: () => rpc<PedidoCelular[]>('docente_pedidos_celular', {}),
     resolverCambio: (libreta, aprobar) => rpc<void>('docente_resolver_cambio', { p_libreta: libreta, p_aprobar: aprobar }),
+    async valoraciones() {
+      const v = await rpc<Record<string, ResumenValoracion>>('docente_valoraciones', {})
+      return Object.fromEntries(Object.entries(v ?? {}).map(([k, x]) => [k, { ...x, promedio: Number(x.promedio) }]))
+    },
+    consultasBuzon: () => rpc<ConsultaBuzon[]>('docente_consultas', {}),
+    responderConsulta: (id, respuesta) => rpc<void>('docente_responder_consulta', { p_id: id, p_respuesta: respuesta }),
 
     // Crear cuentas y cambiar contraseñas necesita la llave de servicio: lo hace la Edge Function «admin-cuentas»,
     // que primero comprueba con el token de quien llama que sea administrador.

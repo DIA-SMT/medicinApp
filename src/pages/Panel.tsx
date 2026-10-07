@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CalendarOff, MapPin, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, CalendarCheck, CalendarOff, MapPin, MessageSquare, Stethoscope, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -6,7 +6,7 @@ import { claveSugerida } from '../lib/clave'
 import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
-import type { AccionAuditoria, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, Rol, Solicitud } from '../data/types'
+import type { AccionAuditoria, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, ResumenValoracion, Rol, Solicitud } from '../data/types'
 import { CATEDRA, MOTIVOS_MANUALES, SEDE, UMBRAL_REGULARIDAD } from '../lib/config'
 import { lejosDeSede } from '../lib/geo'
 import { descargarCsv } from '../lib/csv'
@@ -20,7 +20,7 @@ type Avisar = (texto: string, deshacer?: () => Promise<unknown> | void) => void
 
 type Condicion = 'Regular' | 'En riesgo' | 'Libre'
 const COLOR_COND: Record<Condicion, string> = { Regular: '#0e9f68', 'En riesgo': '#c27c03', Libre: '#e0246f' }
-type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos' | 'historial' | 'cuentas'
+type Pestana = 'regularidad' | 'manual' | 'clase' | 'dispositivos' | 'consultas' | 'historial' | 'cuentas'
 
 interface Fila {
   a: Alumno
@@ -277,6 +277,18 @@ export function Panel() {
     return api.suscribir(cargar)
   }, [api, cargar])
 
+  // Buzón de consultas: se revisa cada minuto.
+  const [consultas, setConsultas] = useState<ConsultaBuzon[] | null>(null)
+  const cargarConsultas = useCallback(() => {
+    api.consultasBuzon().then(setConsultas).catch(() => setConsultas((c) => c ?? []))
+  }, [api])
+  useEffect(() => {
+    cargarConsultas()
+    const t = setInterval(cargarConsultas, 60_000)
+    return () => clearInterval(t)
+  }, [cargarConsultas])
+  const sinResponder = consultas?.filter((c) => !c.respuesta).length ?? 0
+
   // Pedidos de cambio de celular (alumnos sin el anterior): se revisan cada 20 s, porque suelen llegar en clase.
   const [pedidosCel, setPedidosCel] = useState<PedidoCelular[]>([])
   const cargarPedidos = useCallback(() => {
@@ -452,6 +464,19 @@ export function Panel() {
         </button>
       )}
 
+      {sinResponder > 0 && tab !== 'consultas' && (
+        <button
+          onClick={() => ir({ tab: 'consultas' })}
+          className="entrada mt-8 flex w-full flex-wrap items-center gap-3 rounded-2xl border border-cian/30 bg-cian-suave p-4 text-left transition hover:border-cian/60"
+        >
+          <MessageSquare className="h-5 w-5 shrink-0 text-cian" />
+          <span className="flex-1 font-medium text-tinta">
+            {sinResponder === 1 ? '1 consulta de un alumno' : `${sinResponder} consultas de alumnos`} sin responder
+          </span>
+          <span className="text-sm font-semibold text-cian-oscuro">Responder →</span>
+        </button>
+      )}
+
       {pedidosCel.length > 0 && tab !== 'dispositivos' && (
         <button
           onClick={() => ir({ tab: 'dispositivos' })}
@@ -515,6 +540,7 @@ export function Panel() {
             ['manual', 'Presente manual', UserPlus],
             ['clase', 'Por clase', CalendarCheck],
             ['dispositivos', `Dispositivos (${dispositivos.length})${pedidosCel.length ? ` · ${pedidosCel.length} pedido${pedidosCel.length === 1 ? '' : 's'}` : ''}`, Smartphone],
+            ['consultas', `Consultas${sinResponder ? ` (${sinResponder})` : ''}`, MessageSquare],
             ['historial', 'Historial', History],
             ...(esAdmin ? ([['cuentas', `Cuentas${pendientes ? ` (${pendientes} pedido${pendientes === 1 ? '' : 's'})` : ''}`, ShieldCheck]] as const) : []),
           ] as const
@@ -676,6 +702,7 @@ export function Panel() {
           </div>
         </div>
       )}
+      {tab === 'consultas' && <Buzon consultas={consultas} avisar={mostrar} alCambiar={cargarConsultas} />}
       {tab === 'historial' && <Historial alumnos={alumnos} cambios={registros.length + dispositivos.length} />}
       {tab === 'cuentas' && esAdmin && <Cuentas avisar={mostrar} alCambiar={revisarCuentas} />}
       {aviso}
@@ -1319,6 +1346,136 @@ function sospecha(r: Registro): string | null {
 
 type FiltroPresentes = 'todos' | 'qr' | 'poster' | 'manual' | 'sospechosos'
 
+/** Valoración de la clase por los alumnos: anónima (promedio, distribución y comentarios sin nombres). */
+function ValoracionClase({ sesion }: { sesion: Sesion }) {
+  const api = useAdmin()
+  const [todas, setTodas] = useState<Record<string, ResumenValoracion> | null>(null)
+  useEffect(() => {
+    api.valoraciones().then(setTodas).catch(() => setTodas({}))
+  }, [api])
+  if (!todas || sesion.fecha > hoyIso()) return null
+  const v = todas[sesion.id]
+  if (!v)
+    return (
+      <p className="flex items-center gap-2 border-b border-linea px-4 py-2.5 text-xs text-slate-500">
+        <Stethoscope className="h-3.5 w-3.5 text-rosa" /> Todavía sin valoraciones: los alumnos valoran desde «Mi asistencia» cuando termina la clase.
+      </p>
+    )
+  const max = Math.max(...v.porPuntaje, 1)
+  return (
+    <details className="group border-b border-linea">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="etiqueta">Valoración de la clase</span>
+        <span className="flex items-center gap-0.5">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <Stethoscope key={i} className={`h-4 w-4 ${i <= Math.round(v.promedio) ? 'text-rosa' : 'text-slate-200'}`} />
+          ))}
+        </span>
+        <span className="font-display text-lg font-bold text-tinta tabular-nums">{v.promedio.toFixed(1).replace('.', ',')}</span>
+        <span className="text-sm text-slate-500">
+          de 5 · {v.cantidad} {v.cantidad === 1 ? 'valoración' : 'valoraciones'} · {v.comentarios.length} {v.comentarios.length === 1 ? 'comentario' : 'comentarios'}
+        </span>
+        <span className="ml-auto text-xs text-rosa group-open:hidden">Ver detalle</span>
+      </summary>
+      <div className="grid gap-5 px-4 pb-4 sm:grid-cols-[14rem_1fr]">
+        <ul className="space-y-1">
+          {[5, 4, 3, 2, 1].map((p) => (
+            <li key={p} className="flex items-center gap-2 text-xs">
+              <span className="w-3 text-right font-mono text-slate-500">{p}</span>
+              <Stethoscope className="h-3 w-3 text-rosa" />
+              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <span className="block h-full rounded-full bg-rosa" style={{ width: `${(v.porPuntaje[p - 1] / max) * 100}%` }} />
+              </span>
+              <span className="w-6 text-right font-mono text-slate-500 tabular-nums">{v.porPuntaje[p - 1]}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="min-w-0">
+          <div className="text-xs text-slate-400">Comentarios (anónimos)</div>
+          {v.comentarios.length ? (
+            <ul className="mt-1 max-h-56 space-y-1.5 overflow-auto pr-1">
+              {v.comentarios.map((c, i) => (
+                <li key={i} className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <span className="mr-1.5 font-mono text-xs text-rosa">{c.puntaje}/5</span>
+                  {c.texto}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">Nadie dejó comentarios todavía.</p>
+          )}
+        </div>
+      </div>
+    </details>
+  )
+}
+
+/** Buzón de consultas de los alumnos (las mandan desde «Mi asistencia», en su celular vinculado). */
+function Buzon({ consultas, avisar, alCambiar }: { consultas: ConsultaBuzon[] | null; avisar: Avisar; alCambiar: () => void }) {
+  const api = useAdmin()
+  const [borradores, setBorradores] = useState<Record<number, string>>({})
+  const [ocupado, setOcupado] = useState<number | null>(null)
+  if (!consultas) return <p className="tarjeta mt-4 p-5 font-mono text-sm text-slate-400">Cargando consultas…</p>
+  const responder = async (c: ConsultaBuzon) => {
+    setOcupado(c.id)
+    try {
+      await api.responderConsulta(c.id, borradores[c.id] ?? '')
+      avisar(`Respuesta enviada a ${c.nombre.split(',')[0]}: la ve en su celular.`)
+      setBorradores(({ [c.id]: _, ...resto }) => resto)
+      alCambiar()
+    } catch (e) {
+      avisar(String((e as Error).message ?? e))
+    } finally {
+      setOcupado(null)
+    }
+  }
+  return (
+    <div className="tarjeta hud mt-4 p-5">
+      <p className="flex items-start gap-2 text-sm text-slate-600">
+        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-cian" />
+        Las mandan los alumnos desde «Mi asistencia», en su celular vinculado (así se sabe que es el titular del DNI). La respuesta les aparece en el mismo lugar.
+      </p>
+      {consultas.length === 0 && <p className="py-8 text-center text-sm text-slate-500">No hay consultas.</p>}
+      <ul className="mt-4 space-y-3">
+        {consultas.map((c) => (
+          <li key={c.id} className={`rounded-2xl border p-4 ${c.respuesta ? 'border-linea' : 'border-cian/40 bg-cian-suave/40'}`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="font-medium text-tinta">{c.nombre}</span>
+              <span className="font-mono text-xs text-slate-400">
+                {c.libreta} · {fechaCorta(hoyIso(c.creadaEn))} {hmArt(c.creadaEn)}
+              </span>
+            </div>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-700">{c.texto}</p>
+            {c.respuesta ? (
+              <div className="mt-3 rounded-xl bg-vital-suave px-3 py-2 text-sm text-tinta">
+                <div className="text-xs font-semibold text-vital">
+                  Respondida{c.respondidaPor ? ` por ${c.respondidaPor}` : ''}
+                  {c.respondidaEn ? ` · ${fechaCorta(hoyIso(c.respondidaEn))} ${hmArt(c.respondidaEn)}` : ''}
+                </div>
+                <p className="mt-0.5 whitespace-pre-wrap">{c.respuesta}</p>
+              </div>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                <textarea
+                  rows={2}
+                  maxLength={2000}
+                  className="campo text-sm"
+                  placeholder="Tu respuesta…"
+                  value={borradores[c.id] ?? ''}
+                  onChange={(e) => setBorradores((b) => ({ ...b, [c.id]: e.target.value }))}
+                />
+                <button className="btn btn-primario shrink-0" disabled={ocupado === c.id || !(borradores[c.id] ?? '').trim()} onClick={() => responder(c)}>
+                  Responder
+                </button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 const MOTIVOS_SUSPENSION = ['Paro docente', 'Feriado o asueto', 'Clase reprogramada']
 
 /**
@@ -1468,6 +1625,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
   return (
     <div className="tarjeta hud mt-4">
       <SuspensionClase sesion={sesion} esAdmin={esAdmin} presentes={regs.length} avisar={avisar} />
+      <ValoracionClase sesion={sesion} />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linea p-4">
         <SelectorSesion valor={sesion.id} onCambiar={onCambiar} />
         <div className="flex flex-wrap items-center gap-2">

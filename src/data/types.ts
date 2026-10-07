@@ -45,6 +45,8 @@ export type CodigoError =
   | 'SUSPENDIDA'
   | 'SIN_VINCULO'
   | 'YA_VINCULADO'
+  | 'NO_VALORABLE'
+  | 'CONSULTA_INVALIDA'
   | 'SIN_CRYPTO'
   | 'NO_AUTORIZADO'
   | 'RED'
@@ -73,7 +75,7 @@ export interface Progreso {
 
 /** Lo que ve el alumno en «Mi asistencia»: sus clases y su avance hacia la regularidad. */
 export type ResultadoMiAsistencia =
-  | { ok: true; nombre: string; progreso: Progreso; clases: { id: string; dictada: boolean; suspendida?: boolean; marca: Metodo | null }[] }
+  | { ok: true; nombre: string; progreso: Progreso; clases: { id: string; dictada: boolean; suspendida?: boolean; marca: Metodo | null; valorable?: boolean; valoracion?: number | null }[] }
   | Fallo
 
 export interface PedidoMarca {
@@ -148,6 +150,31 @@ export interface PedidoCelular {
 
 export type EstadoCambio = 'APROBADO' | 'PENDIENTE' | 'SIN_PEDIDO'
 
+/** Una consulta del buzón, vista por el alumno. */
+export interface Consulta {
+  id: number
+  texto: string
+  creadaEn: number
+  respuesta: string | null
+  respondidaEn: number | null
+}
+
+/** La misma consulta vista por la cátedra (con el alumno, para poder responder). */
+export interface ConsultaBuzon extends Consulta {
+  libreta: string
+  nombre: string
+  respondidaPor: string | null
+}
+
+/** Valoraciones de una clase, anónimas: promedio, cuántos votaron cada puntaje y comentarios sin nombres. */
+export interface ResumenValoracion {
+  cantidad: number
+  promedio: number
+  /** Cantidad de votos de 1, 2, 3, 4 y 5 estetoscopios. */
+  porPuntaje: number[]
+  comentarios: { puntaje: number; texto: string }[]
+}
+
 export interface DispositivoVinculado {
   libreta: string
   huella: string
@@ -172,6 +199,11 @@ export interface PublicoApi {
   completarTraspaso(dni: string, codigo: string, huella: string, publicJwk: JsonWebKey): Promise<{ ok: true; nombre: string } | Fallo>
   pedirCambio(dni: string, huella: string, publicJwk: JsonWebKey): Promise<{ ok: true } | Fallo>
   estadoCambio(dni: string, huella: string): Promise<{ ok: true; estado: EstadoCambio } | Fallo>
+  /** Valorar una clase a la que fue (1 a 5 estetoscopios y comentario opcional). Desde el celular vinculado. */
+  valorarClase(dni: string, huella: string, sesionId: string, puntaje: number, comentario: string | null): Promise<{ ok: true } | Fallo>
+  /** Buzón de consultas a la cátedra, desde el celular vinculado. */
+  enviarConsulta(dni: string, huella: string, texto: string): Promise<{ ok: true } | Fallo>
+  misConsultas(dni: string, huella: string): Promise<{ ok: true; consultas: Consulta[] } | Fallo>
 }
 
 /** Lo que usa la cátedra: proyector, póster y panel. Se carga recién al entrar con usuario. */
@@ -199,6 +231,11 @@ export interface AdminApi {
   /** Pedidos de cambio de celular de alumnos que no tienen el anterior. */
   pedidosCelular(): Promise<PedidoCelular[]>
   resolverCambio(libreta: string, aprobar: boolean): Promise<void>
+  /** Valoraciones anónimas por clase (clave: id de la sesión). */
+  valoraciones(): Promise<Record<string, ResumenValoracion>>
+  /** Buzón de consultas: las pendientes primero. */
+  consultasBuzon(): Promise<ConsultaBuzon[]>
+  responderConsulta(id: number, respuesta: string): Promise<void>
   /** Borra los presentes y fallos de la clase de ensayo y la cierra. Devuelve cuántos presentes borró. */
   terminarEnsayo(): Promise<number>
   /** Errores que vieron los alumnos en una clase (sólo el código): de los últimos 10 minutos y en total. */

@@ -55,6 +55,8 @@ const I = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   calendario: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   ubicacion: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11Z"/><circle cx="12" cy="10" r="2.5"/>',
+  esteto: '<path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/>',
+  mensaje: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
 }
 
 // ── Estado vivo de la pantalla: un solo reloj actualiza cuentas regresivas, la barra del pase y el estado del registro ──
@@ -183,6 +185,8 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   PASE_VENCIDO: { titulo: 'Se agotó el tiempo', texto: () => 'Pasaron más de 3 minutos desde que escaneaste. Volvé a escanear el QR del aula.' },
   DNI_DESCONOCIDO: { titulo: 'DNI no encontrado', texto: () => 'Ese DNI no figura en la planilla de la materia.' },
   DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Por seguridad cada alumno usa un único celular. Si cambiaste de teléfono o borraste los datos del navegador, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra.' },
+  NO_VALORABLE: { titulo: 'No se puede valorar', texto: (d) => d ?? 'Sólo se valoran las clases en las que diste presente, cuando terminan.' },
+  CONSULTA_INVALIDA: { titulo: 'No se pudo enviar', texto: (d) => d ?? 'Revisá tu consulta y probá de nuevo.' },
   SIN_VINCULO: { titulo: 'Todavía no tenés celular vinculado', texto: () => 'No hace falta pedir nada: escaneá el QR en clase desde este celular y queda vinculado.' },
   YA_VINCULADO: { titulo: 'Este celular ya es el tuyo', texto: () => 'Ya podés dar presente desde acá.' },
   DISPOSITIVO_OCUPADO: { titulo: 'Este celular ya registró a otra persona', texto: () => 'Cada celular queda asociado a un solo alumno. Registrate desde tu propio teléfono o pedile a la cátedra el presente manual.' },
@@ -390,21 +394,46 @@ async function verMiAsistencia() {
             ? 'futura'
             : 'sinRegistro'
     const [texto, clases] = ESTADOS[estado]
-    return `<li class="flex items-center gap-3 px-4 py-2.5">
-      <div class="w-12 shrink-0 font-mono text-xs text-slate-400">${fechaCorta(sesion.fecha)}</div>
-      <div class="min-w-0 flex-1 truncate text-sm text-tinta">${esc(sesion.temas[0].titulo)}</div>
-      <span class="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${clases}">${texto}</span>
+    return `<li class="px-4 py-2.5">
+      <div class="flex items-center gap-3">
+        <div class="w-12 shrink-0 font-mono text-xs text-slate-400">${fechaCorta(sesion.fecha)}</div>
+        <div class="min-w-0 flex-1 truncate text-sm text-tinta">${esc(sesion.temas[0].titulo)}</div>
+        <span class="shrink-0 rounded-full px-2 py-0.5 text-[0.68rem] font-medium ${clases}">${texto}</span>
+      </div>
+      ${c?.valorable ? `<button data-valorar="${sesion.id}" class="mt-1 ml-15 flex items-center gap-1.5 text-xs ${c.valoracion ? 'text-slate-500' : 'font-medium text-rosa'}">${c.valoracion ? `${estetoscopios(c.valoracion, 'h-3.5 w-3.5')} <span class="underline-offset-4 hover:underline">cambiar</span>` : `${svg(I.esteto, 'h-3.5 w-3.5')} Valorar la clase`}</button>` : ''}
     </li>`
   }).join('')
+  // La última clase a la que fue y todavía no valoró: se ofrece arriba, con un toque.
+  const pendiente = [...r.clases].reverse().find((c) => c.valorable && !c.valoracion)
+  const sesionPendiente = pendiente && sesionPorId(pendiente.id)
 
   pintar(
     undefined,
     `<div>
       <div class="etiqueta">Mi asistencia</div>
       <h1 class="mt-1 text-2xl font-semibold text-tinta">${esc(r.nombre)}</h1>
+      ${
+        sesionPendiente
+          ? `<div class="tarjeta hud mt-4 p-4 text-center">
+              <div class="text-sm font-semibold text-tinta">¿Qué tal estuvo la clase del ${diaSemana(sesionPendiente.fecha).toLowerCase()} ${fechaCorta(sesionPendiente.fecha)}?</div>
+              <div class="mt-0.5 truncate text-xs text-slate-500">${esc(sesionPendiente.temas[0].titulo)}</div>
+              <div class="mt-3 flex justify-center gap-1.5">${[1, 2, 3, 4, 5].map((n) => `<button data-valorar="${sesionPendiente.id}" data-puntaje="${n}" class="grid h-11 w-11 place-items-center rounded-xl border border-linea bg-white text-slate-300 transition hover:border-rosa hover:text-rosa" aria-label="${n} de 5">${svg(I.esteto, 'h-6 w-6')}</button>`).join('')}</div>
+              <p class="mt-2 text-[0.68rem] text-slate-400">Es anónimo: la cátedra ve el promedio y los comentarios, no quién los dejó.</p>
+            </div>`
+          : ''
+      }
+      <div id="panel-valoracion"></div>
       ${bloqueProgreso(r.progreso)}
       <ol class="tarjeta mt-4 divide-y divide-slate-100 overflow-hidden">${filas}</ol>
       <p class="mt-3 text-xs text-slate-400">«No se tomó»: ese día no hubo registro de asistencia y no cuenta. Si algo no coincide con lo que recordás, avisale a la cátedra.</p>
+      <div class="tarjeta mt-4 p-4">
+        <div class="flex items-center gap-2 font-semibold text-tinta">${svg(I.mensaje, 'h-5 w-5 text-rosa')} Consultas a la cátedra</div>
+        <p class="mt-1 text-sm text-slate-500">Escribí tu duda: te responden acá mismo, en este celular.</p>
+        <textarea id="consulta" rows="3" maxlength="1000" class="campo mt-3 text-sm" placeholder="Tu consulta…"></textarea>
+        <p id="aviso-consulta" class="mt-1 min-h-5 text-sm" role="status"></p>
+        <button id="enviar-consulta" class="btn btn-secundario w-full">Enviar consulta</button>
+        <ul id="mis-consultas" class="mt-3 space-y-2"></ul>
+      </div>
       <div class="tarjeta mt-4 p-4">
         <div class="flex items-center gap-2 font-semibold text-tinta">${svg(I.huella, 'h-5 w-5 text-rosa')} ¿Vas a cambiar de celular?</div>
         <p class="mt-1 text-sm text-slate-500">Generá un código acá y escribilo en el celular nuevo, en <b>${esc(location.host)}/p/?cambio=1</b>. Dura 15 minutos y sirve una sola vez.</p>
@@ -413,6 +442,50 @@ async function verMiAsistencia() {
       </div>
     </div>`,
   )
+  // Valoración: cualquier botón con data-valorar abre el panel (con el puntaje si vino de los estetoscopios de arriba).
+  document.querySelectorAll<HTMLButtonElement>('[data-valorar]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const id = b.dataset.valorar!
+      const actual = r.clases.find((c) => c.id === id)?.valoracion ?? 0
+      panelValoracion(dni, huella, id, Number(b.dataset.puntaje) || actual)
+    }),
+  )
+  if (location.hash === '#valorar' && sesionPendiente) panelValoracion(dni, huella, sesionPendiente.id, 0)
+
+  // Buzón
+  const pintarConsultas = async () => {
+    const m = await (await publico()).misConsultas(dni, huella)
+    const lista = document.getElementById('mis-consultas')
+    if (!lista || !m.ok) return
+    lista.innerHTML = m.consultas
+      .map(
+        (c) => `<li class="rounded-xl border border-linea p-3 text-sm">
+          <div class="text-slate-700">${esc(c.texto)}</div>
+          <div class="mt-1 font-mono text-[0.65rem] text-slate-400">${fechaCorta(hoyIso(c.creadaEn))} ${hmArt(c.creadaEn)}</div>
+          ${c.respuesta ? `<div class="mt-2 rounded-lg bg-vital-suave px-3 py-2 text-tinta"><b class="text-vital">Respuesta de la cátedra:</b> ${esc(c.respuesta)}</div>` : '<div class="mt-2 text-xs text-ambar">Esperando respuesta</div>'}
+        </li>`,
+      )
+      .join('')
+  }
+  pintarConsultas()
+  const enviar = document.getElementById('enviar-consulta') as HTMLButtonElement
+  enviar.addEventListener('click', async () => {
+    const campo = document.getElementById('consulta') as HTMLTextAreaElement
+    const aviso = document.getElementById('aviso-consulta')!
+    enviar.disabled = true
+    const res = await (await publico()).enviarConsulta(dni, huella, campo.value)
+    enviar.disabled = false
+    if (!res.ok) {
+      aviso.className = 'mt-1 min-h-5 text-sm text-rosa-oscuro'
+      aviso.textContent = res.error === 'RED' ? (res.detalle ?? ERRORES.RED.texto()) : ERRORES[res.error].texto(res.detalle)
+      return
+    }
+    campo.value = ''
+    aviso.className = 'mt-1 min-h-5 text-sm text-vital'
+    aviso.textContent = 'Enviada. Te van a responder acá.'
+    pintarConsultas()
+  })
+
   const boton = document.getElementById('traspaso') as HTMLButtonElement
   boton.addEventListener('click', async () => {
     boton.disabled = true
@@ -432,6 +505,84 @@ async function verMiAsistencia() {
       </div>`
     boton.textContent = 'Generar otro código'
   })
+}
+
+// ── Valoración de las clases (1 a 5 estetoscopios, anónima para la cátedra) ──
+
+const estetoscopios = (n: number, cls = 'h-4 w-4') =>
+  `<span class="inline-flex gap-0.5">${[1, 2, 3, 4, 5].map((i) => `<span class="${i <= n ? 'text-rosa' : 'text-slate-200'}">${svg(I.esteto, cls)}</span>`).join('')}</span>`
+
+function panelValoracion(dni: string, huella: string, sesionId: string, inicial: number) {
+  const s = sesionPorId(sesionId)
+  const caja = document.getElementById('panel-valoracion')
+  if (!s || !caja) return
+  let puntaje = inicial
+  caja.innerHTML = `
+    <form id="form-valoracion" class="tarjeta hud entrada mt-4 p-5">
+      <div class="etiqueta">Valorá la clase · ${diaSemana(s.fecha)} ${fechaCorta(s.fecha)}</div>
+      <div class="mt-1 font-semibold text-tinta">${esc(s.temas.map((t) => t.titulo).join(' + '))}</div>
+      <div class="mt-4 flex justify-center gap-2" role="radiogroup" aria-label="Puntaje de 1 a 5">
+        ${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-p="${n}" role="radio" aria-label="${n} de 5" class="grid h-12 w-12 place-items-center rounded-xl border transition">${svg(I.esteto, 'h-7 w-7')}</button>`).join('')}
+      </div>
+      <p id="leyenda-puntaje" class="mt-2 min-h-5 text-center text-sm font-medium text-rosa"></p>
+      <label class="mt-2 block text-sm text-slate-600" for="comentario">Comentario <span class="text-slate-400">(opcional)</span></label>
+      <textarea id="comentario" rows="3" maxlength="500" class="campo mt-1 text-sm" placeholder="¿Algo para destacar o mejorar?"></textarea>
+      <p class="mt-1 text-[0.68rem] text-slate-400">Anónimo: la cátedra ve el promedio y los comentarios, no quién los dejó.</p>
+      <p id="aviso-valoracion" class="mt-1 min-h-5 text-sm text-rosa-oscuro" role="alert"></p>
+      <div class="flex gap-2">
+        <button id="enviar-valoracion" class="btn btn-primario flex-1">Enviar valoración</button>
+        <button type="button" id="cancelar-valoracion" class="btn btn-secundario">Cancelar</button>
+      </div>
+    </form>`
+  const LEYENDAS = ['', 'Muy mala', 'Mala', 'Buena', 'Muy buena', 'Excelente']
+  const pintarPuntaje = () => {
+    caja.querySelectorAll<HTMLButtonElement>('[data-p]').forEach((b) => {
+      const n = Number(b.dataset.p)
+      b.className = `grid h-12 w-12 place-items-center rounded-xl border transition ${n <= puntaje ? 'border-rosa bg-rosa-suave text-rosa' : 'border-linea bg-white text-slate-300'}`
+      b.setAttribute('aria-checked', String(n === puntaje))
+    })
+    document.getElementById('leyenda-puntaje')!.textContent = LEYENDAS[puntaje] ?? ''
+  }
+  caja.querySelectorAll<HTMLButtonElement>('[data-p]').forEach((b) => b.addEventListener('click', () => ((puntaje = Number(b.dataset.p)), pintarPuntaje())))
+  pintarPuntaje()
+  caja.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  document.getElementById('cancelar-valoracion')!.addEventListener('click', () => (caja.innerHTML = ''))
+  document.getElementById('form-valoracion')!.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const aviso = document.getElementById('aviso-valoracion')!
+    if (!puntaje) return void (aviso.textContent = 'Elegí de 1 a 5 estetoscopios.')
+    const boton = document.getElementById('enviar-valoracion') as HTMLButtonElement
+    boton.disabled = true
+    const comentario = (document.getElementById('comentario') as HTMLTextAreaElement).value.trim() || null
+    const res = await (await publico()).valorarClase(dni, huella, sesionId, puntaje, comentario)
+    boton.disabled = false
+    if (!res.ok) return void (aviso.textContent = res.error === 'RED' ? (res.detalle ?? ERRORES.RED.texto()) : ERRORES[res.error].texto(res.detalle))
+    history.replaceState(null, '', '/p/?mia=1')
+    await verMiAsistencia()
+    const gracias = document.getElementById('panel-valoracion')
+    if (gracias) gracias.innerHTML = `<div class="entrada mt-4 rounded-2xl bg-vital-suave px-4 py-3 text-center text-sm font-medium text-vital">¡Gracias por tu valoración!</div>`
+  })
+}
+
+/** En la portada de /p/, fuera del horario de clase: si hay una clase sin valorar, se la recuerda (una línea). */
+async function recordarValoracion() {
+  const dni = leer(CLAVE_DNI)
+  if (!dni || !cryptoDisponible()) return
+  try {
+    const huella = (await obtenerDispositivo()).huella
+    const r = await (await publico()).miAsistencia(dni, huella)
+    if (!r.ok) return
+    const p = [...r.clases].reverse().find((c) => c.valorable && !c.valoracion)
+    const s = p && sesionPorId(p.id)
+    const destino = document.getElementById('recordar-valoracion')
+    if (!s || !destino) return
+    destino.innerHTML = `<a href="/p/?mia=1#valorar" class="entrada mt-4 flex items-center gap-3 rounded-2xl border border-rosa/30 bg-rosa-suave px-4 py-3 text-sm text-tinta">
+      <span class="text-rosa">${svg(I.esteto, 'h-5 w-5')}</span>
+      <span class="flex-1">¿Qué tal estuvo la clase del ${fechaCorta(s.fecha)}? <b class="text-rosa">Valorala</b></span>
+    </a>`
+  } catch {
+    /* sin red o sin celular vinculado: no se recuerda nada */
+  }
 }
 
 // ── Cambio de celular ──
@@ -878,7 +1029,7 @@ function pedirCodigo(aviso?: string) {
     const proxima = clasesVigentes(ventanas).find((s) => s.fecha > hoy)
     const motivo = suspendidaHoy && deHoy ? ventanas?.[deHoy.id]?.motivoSuspension : null
     const abre = proxima ? instante(proxima.fecha, (ventanas?.[proxima.id] ?? ventanaDefault()).apertura) : 0
-    return pintar(
+    pintar(
       undefined,
       `<div class="tarjeta hud p-6">
         <div class="grid h-12 w-12 place-items-center rounded-2xl bg-cian-suave text-cian">${svg(I.reloj)}</div>
@@ -893,8 +1044,11 @@ function pedirCodigo(aviso?: string) {
         }
         <p class="mt-4 text-sm text-slate-500">Para dar presente escaneá el QR del aula con la cámara del celular.</p>
         ${enlaceMiAsistencia()}
-      </div>`,
+      </div>
+      <div id="recordar-valoracion"></div>`,
     )
+    recordarValoracion()
+    return
   }
   pintar(
     sesion,

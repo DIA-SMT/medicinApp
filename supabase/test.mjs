@@ -434,5 +434,52 @@ const audPedidos = (await q(`select accion, por from auditoria where accion in (
 ok(audPedidos.includes('celular_cambiado:Catedra@Ejemplo.edu.ar') && audPedidos.some((x) => x.startsWith('cambio_celular_rechazado')), 'aprobaciones y rechazos quedan en el historial con autor', audPedidos)
 await db.exec(`select set_config('request.jwt.claims', '', false)`)
 
+// ── Valoración de las clases y buzón de consultas ──
+// Estado: MD0000001 tiene vinculado k4; dio presente el 30/09 (cerrada) y en SID (abierta ahora).
+await db.exec('delete from intentos_fallidos')
+r = await rpcJ('valorar_clase', '10000001', 'f'.repeat(64), '2026-09-30', 5, null)
+ok(!r.ok && r.error === 'DISPOSITIVO_AJENO', 'valorar sólo desde el celular vinculado')
+r = await rpcJ('valorar_clase', '10000001', k4.h, '2026-09-30', 6, null)
+ok(!r.ok && r.error === 'NO_VALORABLE', 'el puntaje va de 1 a 5')
+r = await rpcJ('valorar_clase', '10000001', k4.h, SID, 5, null)
+ok(!r.ok && r.error === 'NO_VALORABLE' && /termine/.test(r.detalle), 'no se valora una clase que todavía no terminó', r.detalle)
+r = await rpcJ('valorar_clase', '10000001', k4.h, '2026-10-14', 5, null)
+ok(!r.ok && r.error === 'NO_VALORABLE' && /presente/.test(r.detalle), 'no se valora una clase a la que no fue', r.detalle)
+r = await rpcJ('valorar_clase', '10000001', k4.h, '2026-09-30', 4, '  Muy clara la explicación  ')
+ok(r.ok, 'valorar una clase a la que fue, ya terminada')
+await rpcJ('valorar_clase', '10000001', k4.h, '2026-09-30', 5, 'Excelente')
+const vals = await q(`select puntaje, comentario from valoraciones where sesion_id = '2026-09-30'`)
+ok(vals.length === 1 && vals[0].puntaje === 5 && vals[0].comentario === 'Excelente', 'cambiar la valoración no suma un voto nuevo', vals)
+mia = (await one('select mi_asistencia($1,$2) r', ['10000001', k4.h])).r
+const c30 = mia.clases.find((c) => c.id === '2026-09-30')
+ok(c30.valorable && c30.valoracion === 5 && !mia.clases.find((c) => c.id === SID).valorable, '«Mi asistencia» indica qué clases se pueden valorar y el puntaje dado', c30)
+ok((await error('select docente_valoraciones()'))?.includes('NO_AUTORIZADO'), 'sólo la cátedra ve las valoraciones')
+await comoCatedra()
+const resumenVal = (await one('select docente_valoraciones() v')).v
+const v30 = resumenVal['2026-09-30']
+ok(v30.cantidad === 1 && Number(v30.promedio) === 5 && v30.porPuntaje[4] === 1 && v30.comentarios[0].texto === 'Excelente', 'la cátedra ve promedio, distribución y comentarios', v30)
+ok(!/MD0000001|Demo|libreta/i.test(JSON.stringify(resumenVal)), 'las valoraciones son anónimas para la cátedra')
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
+// Buzón
+r = await rpcJ('enviar_consulta', '10000001', k4.h, 'hola')
+ok(!r.ok && r.error === 'CONSULTA_INVALIDA', 'la consulta tiene un mínimo de texto')
+r = await rpcJ('enviar_consulta', '10000001', 'f'.repeat(64), '¿Cuándo es el parcial?')
+ok(!r.ok && r.error === 'DISPOSITIVO_AJENO', 'consultas sólo desde el celular vinculado')
+for (const t of ['¿Cuándo es el primer parcial?', '¿Cómo recupero la clase del 30/09?', '¿Dónde es la clase del viernes?']) await rpcJ('enviar_consulta', '10000001', k4.h, t)
+r = await rpcJ('enviar_consulta', '10000001', k4.h, 'Una cuarta consulta seguida')
+ok(!r.ok && r.error === 'CONSULTA_INVALIDA' && /esperando/.test(r.detalle), 'como máximo 3 consultas sin responder a la vez')
+ok((await error('select docente_consultas()'))?.includes('NO_AUTORIZADO'), 'sólo la cátedra ve el buzón')
+await comoCatedra()
+const buzon = (await one('select docente_consultas() c')).c
+ok(buzon.length === 3 && buzon.every((x) => x.nombre && x.libreta === 'MD0000001' && !x.respuesta), 'la cátedra ve las consultas con el nombre del alumno', buzon.length)
+ok((await error(`select docente_responder_consulta(${buzon[0].id}, '   ')`))?.includes('FALTA_RESPUESTA'), 'responder exige texto')
+await one(`select docente_responder_consulta(${buzon[0].id}, 'El primer parcial es el 21/10.')`)
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
+const mias = (await rpcJ('mis_consultas', '10000001', k4.h)).consultas
+const respondida = mias.find((x) => x.respuesta)
+ok(mias.length === 3 && respondida?.respuesta === 'El primer parcial es el 21/10.' && respondida.respondidaEn, 'el alumno ve la respuesta en su celular', mias.length)
+ok((await one(`select respondida_por from consultas where respuesta is not null`)).respondida_por === 'Catedra@Ejemplo.edu.ar', 'queda quién respondió')
+ok(!(await rpcJ('mis_consultas', '10000001', 'f'.repeat(64))).ok, 'nadie ve las consultas de otro')
+
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)

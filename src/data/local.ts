@@ -7,7 +7,7 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, PedidoCelular, Progreso, PublicoApi, Registro, Solicitud } from './types'
+import type { AdminApi, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, PedidoCelular, Progreso, PublicoApi, Registro, Solicitud } from './types'
 
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
@@ -38,6 +38,8 @@ const K = {
   dispositivos: 'ciclo:v1:dispositivos',
   traspasos: 'ciclo:v1:traspasos',
   pedidosCelular: 'ciclo:v1:pedidos-celular',
+  valoraciones: 'ciclo:v1:valoraciones',
+  consultas: 'ciclo:v1:consultas',
 }
 
 function leer<T>(k: string, def: T): T {
@@ -129,6 +131,7 @@ function vincularLocal(libreta: string, huella: string, detalle: string, por: st
 }
 
 type PedidoLocal = { huella: string; pedidoEn: number }
+type ValoracionLocal = { sesionId: string; libreta: string; puntaje: number; comentario: string | null; en: number }
 
 export function crearLocal(): PublicoApi & AdminApi {
   return {
@@ -214,6 +217,40 @@ export function crearLocal(): PublicoApi & AdminApi {
       return { ok: true }
     },
 
+    async valorarClase(dni, huella, sesionId, puntaje, comentario) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a || leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]?.libreta !== a.libreta) return fallo('DISPOSITIVO_AJENO')
+      const s = sesionPorId(sesionId)
+      if (!s || s.ensayo) return fallo('SESION_INEXISTENTE')
+      if (!(puntaje >= 1 && puntaje <= 5)) return fallo('NO_VALORABLE', 'El puntaje va de 1 a 5.')
+      if (!leer<Registro[]>(K.registros, []).some((r) => r.sesionId === sesionId && r.libreta === a.libreta)) return fallo('NO_VALORABLE', 'Sólo se valoran las clases en las que diste presente.')
+      if (infoVentana(s.fecha, ventanaDe(sesionId)).estado !== 'cerrada') return fallo('NO_VALORABLE', 'Vas a poder valorarla cuando termine la clase.')
+      const otras = leer<ValoracionLocal[]>(K.valoraciones, []).filter((v) => !(v.sesionId === sesionId && v.libreta === a.libreta))
+      escribir(K.valoraciones, [...otras, { sesionId, libreta: a.libreta, puntaje, comentario: comentario?.trim().slice(0, 500) || null, en: Date.now() }])
+      return { ok: true }
+    },
+
+    async enviarConsulta(dni, huella, texto) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a || leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]?.libreta !== a.libreta) return fallo('DISPOSITIVO_AJENO')
+      const t = texto.trim()
+      if (t.length < 5 || t.length > 1000) return fallo('CONSULTA_INVALIDA', 'Escribí tu consulta (entre 5 y 1000 caracteres).')
+      const todas = leer<ConsultaBuzon[]>(K.consultas, [])
+      if (todas.filter((c) => c.libreta === a.libreta && !c.respuesta).length >= 3) return fallo('CONSULTA_INVALIDA', 'Ya tenés varias consultas esperando respuesta. Esperá a que te contesten.')
+      escribir(K.consultas, [...todas, { id: Date.now(), libreta: a.libreta, nombre: a.nombre, texto: t, creadaEn: Date.now(), respuesta: null, respondidaEn: null, respondidaPor: null }])
+      return { ok: true }
+    },
+
+    async misConsultas(dni, huella) {
+      const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
+      if (!a || leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})[huella]?.libreta !== a.libreta) return fallo('DISPOSITIVO_AJENO')
+      const consultas = leer<ConsultaBuzon[]>(K.consultas, [])
+        .filter((c) => c.libreta === a.libreta)
+        .sort((x, y) => y.creadaEn - x.creadaEn)
+        .map(({ id, texto, creadaEn, respuesta, respondidaEn }) => ({ id, texto, creadaEn, respuesta, respondidaEn }))
+      return { ok: true, consultas }
+    },
+
     async estadoCambio(dni, huella) {
       const a = (await padronConDemo()).find((x) => x.dni === limpiarDni(dni))
       if (!a) return fallo('DNI_DESCONOCIDO')
@@ -237,6 +274,8 @@ export function crearLocal(): PublicoApi & AdminApi {
           id: s.id,
           dictada: !ventanaDe(s.id).suspendida && s.fecha <= hoy && regs.some((r) => r.sesionId === s.id),
           suspendida: !!ventanaDe(s.id).suspendida,
+          valorable: regs.some((r) => r.sesionId === s.id && r.libreta === a.libreta) && !ventanaDe(s.id).suspendida && infoVentana(s.fecha, ventanaDe(s.id)).estado === 'cerrada',
+          valoracion: leer<ValoracionLocal[]>(K.valoraciones, []).find((v) => v.sesionId === s.id && v.libreta === a.libreta)?.puntaje ?? null,
           marca: regs.find((r) => r.sesionId === s.id && r.libreta === a.libreta)?.metodo ?? null,
         })),
       }
@@ -361,6 +400,32 @@ export function crearLocal(): PublicoApi & AdminApi {
         const usos = regs.filter((r) => r.libreta === libreta && r.huella === actual?.huella).map((r) => r.marcadoEn)
         return { libreta, nombre: padron.find((a) => a.libreta === libreta)?.nombre ?? libreta, pedidoEn: p.pedidoEn, vinculadoDesde: actual?.creadoEn ?? null, ultimoUso: usos.length ? Math.max(...usos) : null }
       })
+    },
+
+    async valoraciones() {
+      const porClase: Record<string, ValoracionLocal[]> = {}
+      for (const v of leer<ValoracionLocal[]>(K.valoraciones, [])) (porClase[v.sesionId] ??= []).push(v)
+      return Object.fromEntries(
+        Object.entries(porClase).map(([id, vs]) => [
+          id,
+          {
+            cantidad: vs.length,
+            promedio: Math.round((vs.reduce((n, v) => n + v.puntaje, 0) / vs.length) * 100) / 100,
+            porPuntaje: [1, 2, 3, 4, 5].map((p) => vs.filter((v) => v.puntaje === p).length),
+            comentarios: vs.filter((v) => v.comentario).sort((x, y) => y.en - x.en).map((v) => ({ puntaje: v.puntaje, texto: v.comentario! })),
+          },
+        ]),
+      )
+    },
+
+    async consultasBuzon() {
+      return leer<ConsultaBuzon[]>(K.consultas, []).sort((x, y) => Number(!!x.respuesta) - Number(!!y.respuesta) || y.creadaEn - x.creadaEn)
+    },
+
+    async responderConsulta(id, respuesta) {
+      const r = respuesta.trim()
+      if (!r) throw new Error('Escribí la respuesta.')
+      escribir(K.consultas, leer<ConsultaBuzon[]>(K.consultas, []).map((c) => (c.id === id ? { ...c, respuesta: r.slice(0, 2000), respondidaEn: Date.now(), respondidaPor: 'demo@catedra' } : c)))
     },
 
     async resolverCambio(libreta, aprobar) {
