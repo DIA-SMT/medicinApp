@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, CalendarOff, Camera, CircleCheck, Clock, Download, ExternalLink, FlaskConical, IdCard, Lock, Maximize, Minimize, MoreHorizontal, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CalendarOff, Share2, Camera, CircleCheck, Clock, Download, ExternalLink, FlaskConical, IdCard, Lock, Maximize, Minimize, MoreHorizontal, Plus, Printer, Square, Stethoscope, TriangleAlert, Unlock, UserPlus, Users, WifiOff, Zap } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Marca, SelloUNT } from '../components/Logo'
@@ -12,7 +12,8 @@ import { enlaceRegistro } from '../lib/enlaces'
 import { nombreCorto } from '../lib/format'
 import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
 import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionActual, suspendida, ventanaDefault, type Ventana } from '../lib/time'
-import { contador, segundosRestantes, totp } from '../lib/totp'
+import { clavePoster, contador, segundosRestantes, totp } from '../lib/totp'
+import { copiarTexto } from '../lib/copiar'
 
 /** Qué significa cada error que ven los alumnos y qué puede hacer el docente. */
 const FALLOS: Record<string, [string, string]> = {
@@ -121,6 +122,19 @@ export function Aula() {
     cargar()
     return api.suscribir(cargar)
   }, [api, cargar])
+
+  // Enlace para mandar por WhatsApp a quienes llegan tarde: el mismo código fijo del póster, que sólo vale
+  // mientras el registro esté abierto. Queda como «póster/enlace» y, si se da lejos o sin ubicación, como sospechoso.
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false)
+  const copiarEnlace = async () => {
+    if (!secreto) return
+    const enlace = enlaceRegistro(sesion.id, await clavePoster(secreto, sesion.id))
+    const texto = `Presente de Ginecología (sólo si estás en el aula): ${enlace}\nVale hasta que cierra el registro, a las ${hmArt(info.cierra)}.`
+    if (await copiarTexto(texto)) {
+      setEnlaceCopiado(true)
+      setTimeout(() => setEnlaceCopiado(false), 3000)
+    } else window.prompt('Copiá este mensaje para el grupo:', texto)
+  }
 
   // Menú «Más» de la barra inferior: se cierra al tocar afuera.
   const mas = useRef<HTMLDetailsElement>(null)
@@ -460,6 +474,11 @@ export function Aula() {
               <MoreHorizontal className="h-4 w-4" /> Más
             </summary>
             <div className="entrada absolute right-0 bottom-full z-30 mb-2 w-60 rounded-2xl border border-linea bg-white p-1.5 text-sm shadow-xl">
+              {abierta && !sesion.ensayo && (
+                <button onClick={copiarEnlace} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-tinta hover:bg-slate-50">
+                  <Share2 className="h-4 w-4 text-vital" /> {enlaceCopiado ? '¡Enlace copiado!' : 'Copiar enlace para WhatsApp'}
+                </button>
+              )}
               <Link to={`/panel?tab=manual&s=${sesion.id}`} className="flex items-center gap-2 rounded-xl px-3 py-2 text-tinta hover:bg-slate-50">
                 <UserPlus className="h-4 w-4 text-violeta" /> Presente manual
               </Link>

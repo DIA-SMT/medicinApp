@@ -139,6 +139,7 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
   const info = infoVentana(s.fecha, ventanas?.[s.id] ?? ventanaDefault(), now)
   const suspendidaHoy = CRONOGRAMA.find((x) => x.fecha === hoyIso(now) && suspendida(ventanas, x.id))
   const n = registros.filter((r) => r.sesionId === s.id).length
+  const sospechosos = registros.filter((r) => r.sesionId === s.id && sospecha(r)).length
   const avisos = Object.entries(fallos).sort((a, b) => b[1] - a[1])
   const estado =
     info.estado === 'abierta'
@@ -162,6 +163,11 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           <h2 className="mt-2 font-display text-2xl leading-tight font-semibold text-tinta sm:text-3xl">{s.temas.map((t) => t.titulo).join(' + ')}</h2>
           <p className="mt-1 text-sm text-slate-500">{docentesSesion(s)}</p>
           <p className={`mt-3 text-sm font-medium ${info.estado === 'abierta' ? 'text-vital' : 'text-slate-600'}`}>{estado}</p>
+          {sospechosos > 0 && (
+            <button onClick={() => onVer(s.id)} className="mt-2 flex items-center gap-1.5 text-xs font-medium text-ambar underline-offset-4 hover:underline">
+              <MapPin className="h-3.5 w-3.5" /> {sospechosos === 1 ? '1 presente sospechoso' : `${sospechosos} presentes sospechosos`} (lejos del aula o enlace sin ubicación) · revisar
+            </button>
+          )}
           {suspendidaHoy && (
             <p className="mt-2 flex items-center gap-1.5 text-xs text-ambar">
               <CalendarOff className="h-3.5 w-3.5" /> Hoy no hay clase: la del {fechaCorta(suspendidaHoy.fecha)} está suspendida ({ventanas?.[suspendidaHoy.id]?.motivoSuspension}).
@@ -1297,6 +1303,19 @@ function PedidosCelular({ pedidos, avisar, alCambiar }: { pedidos: PedidoCelular
   )
 }
 
+/**
+ * Por qué un presente merece una mirada (nunca se quita solo): dado lejos del aula, o con el código fijo
+ * del póster/enlace (que se puede reenviar) sin permitir la ubicación.
+ */
+function sospecha(r: Registro): string | null {
+  if (r.metodo === 'manual') return null
+  if (lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM)) return `lejos del aula (${r.distanciaM! >= 1000 ? `${(r.distanciaM! / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM!)} m`})`
+  if (r.metodo === 'poster' && r.distanciaM == null) return 'póster o enlace sin ubicación'
+  return null
+}
+
+type FiltroPresentes = 'todos' | 'qr' | 'poster' | 'manual' | 'sospechosos'
+
 const MOTIVOS_SUSPENSION = ['Paro docente', 'Feriado o asueto', 'Clase reprogramada']
 
 /**
@@ -1420,10 +1439,19 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
     }
   }
 
-  // Presentes dados lejos del aula (sólo se guarda la distancia): para revisar, nunca bloquean.
-  const lejos = regs.filter((r) => r.metodo !== 'manual' && lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM))
-  const [soloLejos, setSoloLejos] = useState(false)
-  const listados = soloLejos ? lejos : regs
+  // Filtros por método y «sospechosos» (lejos del aula, o póster/enlace sin ubicación): para revisar, nunca bloquean.
+  const [filtro, setFiltro] = useState<FiltroPresentes>('todos')
+  useEffect(() => setFiltro('todos'), [sesion.id])
+  const cuenta: Record<FiltroPresentes, number> = {
+    todos: regs.length,
+    qr: regs.filter((r) => r.metodo === 'qr').length,
+    poster: regs.filter((r) => r.metodo === 'poster').length,
+    manual: regs.filter((r) => r.metodo === 'manual').length,
+    sospechosos: regs.filter((r) => sospecha(r)).length,
+  }
+  const listados = regs.filter((r) =>
+    filtro === 'todos' ? true : filtro === 'sospechosos' ? !!sospecha(r) : r.metodo === filtro,
+  )
 
   const exportar = () =>
     descargarCsv(`asistencia-${sesion.id}.csv`, [
@@ -1443,16 +1471,6 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
           <span className="font-mono text-sm text-tinta">
             <span className="text-vital">{regs.length}</span> presentes · <span className="text-rosa">{ausentes.length}</span> ausentes
           </span>
-          {lejos.length > 0 && (
-            <button
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${soloLejos ? 'border-ambar bg-ambar text-white' : 'border-ambar/40 bg-ambar-suave text-ambar'}`}
-              onClick={() => (setSoloLejos((x) => !x), setVerAusentes(false))}
-              title={`Dieron presente a más de ${SEDE.radioM} m del aula (descontando el margen de error del GPS)`}
-            >
-              <MapPin className="mr-1 inline h-3.5 w-3.5" />
-              {lejos.length} lejos del aula
-            </button>
-          )}
           <button className="btn btn-secundario !py-2" onClick={() => setVerAusentes((x) => !x)}>
             {verAusentes ? 'Ver presentes' : 'Ver ausentes'}
           </button>
@@ -1464,6 +1482,37 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
           </button>
         </div>
       </div>
+      {!verAusentes && regs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-linea px-4 py-2.5">
+          {(
+            [
+              ['todos', 'Todos'],
+              ['qr', 'QR del proyector'],
+              ['poster', 'Póster o enlace'],
+              ['manual', 'Manual'],
+              ['sospechosos', 'Sospechosos'],
+            ] as const
+          ).map(([k, t]) => (
+            <button
+              key={k}
+              onClick={() => setFiltro(k)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                filtro === k
+                  ? k === 'sospechosos'
+                    ? 'border-ambar bg-ambar text-white'
+                    : 'border-tinta bg-tinta text-white'
+                  : k === 'sospechosos' && cuenta.sospechosos > 0
+                    ? 'border-ambar/40 bg-ambar-suave text-ambar'
+                    : 'border-linea bg-white text-slate-600 hover:text-tinta'
+              }`}
+              title={k === 'sospechosos' ? `Lejos del aula (más de ${SEDE.radioM} m, descontando el error del GPS) o póster/enlace sin ubicación` : undefined}
+            >
+              {k === 'sospechosos' && <MapPin className="mr-1 inline h-3.5 w-3.5" />}
+              {t} <span className="opacity-70">({cuenta[k]})</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="max-h-[60vh] overflow-auto">
         {!verAusentes ? (
           <table className="w-full text-sm">
@@ -1486,7 +1535,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                   </td>
                   <td className="px-4 py-2">
                     <span className={`rounded-full px-2 py-0.5 font-mono text-[0.6rem] uppercase ${r.metodo === 'manual' ? 'bg-violeta-suave text-violeta' : 'bg-vital-suave text-vital'}`}>
-                      {r.metodo === 'qr' ? 'QR dinámico' : r.metodo === 'poster' ? 'Póster' : 'Manual'}
+                      {r.metodo === 'qr' ? 'QR dinámico' : r.metodo === 'poster' ? 'Póster/enlace' : 'Manual'}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-xs text-slate-500">
@@ -1496,8 +1545,10 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                       <span className={lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) ? 'font-semibold text-ambar' : ''}>
                         {r.distanciaM >= 1000 ? `${(r.distanciaM / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM)} m`} del aula
                         {r.precisionM != null && <span className="font-normal text-slate-400"> (±{Math.round(r.precisionM)} m)</span>}
-                        {lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) && ' · lejos'}
+                        {lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) && ' · sospechoso'}
                       </span>
+                    ) : sospecha(r) ? (
+                      <span className="font-semibold text-ambar">sin ubicación · sospechoso</span>
                     ) : (
                       <span className="text-slate-400">sin ubicación</span>
                     )}
@@ -1507,7 +1558,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                       className="text-xs text-slate-400 hover:text-rosa"
                       onClick={async () => {
                         const nombre = porAlumno.get(r.libreta)?.nombre ?? r.nombre
-                        if (r.metodo !== 'manual' && !confirm(`¿Quitar el presente que ${nombre} dio con el ${r.metodo === 'poster' ? 'póster' : 'QR'}?`)) return
+                        if (r.metodo !== 'manual' && !confirm(`¿Quitar el presente que ${nombre} dio con el ${r.metodo === 'poster' ? 'póster o enlace' : 'QR'}?`)) return
                         await api.quitarPresente(sesion.id, [r.libreta])
                         recargar()
                         avisar(`Presente quitado: ${nombre.split(',')[0]}`, r.metodo === 'manual' ? () => api.marcarManual(sesion.id, [r.libreta], r.motivo ?? 'Sin especificar').then(recargar) : undefined)
