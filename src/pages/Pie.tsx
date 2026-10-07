@@ -18,7 +18,10 @@ export function Pie() {
         </div>
         <div className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.2em] text-slate-400 uppercase">
           <UteroMark className="h-5 w-5" />
-          Ginecoapp · asistencia a teóricas · 2026
+          Ginecoapp · asistencia a teóricas · 2026 ·{' '}
+          <a href="/p/?terminos=1" className="normal-case underline-offset-4 hover:text-tinta hover:underline">
+            Términos y condiciones
+          </a>
         </div>
       </div>
     </footer>

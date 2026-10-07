@@ -4,6 +4,7 @@ import './presente.css'
 import { publico } from '../data/publico'
 import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
 import { CATEDRA, GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
+import { TERMINOS, TERMINOS_RESUMEN, TERMINOS_TITULO, TERMINOS_VERSION } from '../lib/terminos'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
 import { firmar, obtenerDispositivo, type Dispositivo } from '../lib/device'
 import { obtenerUbicacion, type Ubicacion } from '../lib/geo'
@@ -117,8 +118,30 @@ const tarjetaClase = (s: Sesion) => `
 // Elena (la asistente) vive en la app: se abre en otra pestaña para no perder el registro a medias.
 const enlaceElena = (pregunta?: string) => `/#/?elena=1${pregunta ? `&q=${encodeURIComponent(pregunta)}` : ''}`
 
+// Términos y condiciones: se aceptan antes del primer presente de cada celular (y cuando cambia la versión).
+const CLAVE_TERMINOS = 'ciclo:terminos'
+const terminosAceptados = () => leer(CLAVE_TERMINOS) === TERMINOS_VERSION
+const textoTerminos = () =>
+  TERMINOS.map((t, i) => `<p class="mt-3"><b class="text-tinta">${i + 1}. ${esc(t.titulo)}.</b> ${esc(t.texto)}</p>`).join('')
+
+function verTerminos() {
+  history.replaceState(null, '', '/p/?terminos=1')
+  pintar(
+    undefined,
+    `<article class="tarjeta hud p-6 text-sm leading-relaxed text-slate-600">
+      <div class="etiqueta">Cátedra de Ginecología · ${esc(CATEDRA.titularCorta)}</div>
+      <h1 class="mt-2 text-xl font-semibold text-tinta">${esc(TERMINOS_TITULO)}</h1>
+      <p class="mt-1 text-xs text-slate-400">Versión del ${TERMINOS_VERSION.split('-').reverse().join('/')}</p>
+      ${textoTerminos()}
+      <a href="/p/" class="btn btn-secundario mt-6 w-full">Volver</a>
+    </article>`,
+  )
+}
+
 const PIE = `<div class="mt-auto pt-8 text-center">
   <a href="${enlaceElena()}" target="_blank" rel="noopener" class="text-xs font-medium text-rosa underline-offset-4 hover:underline">¿Dudas? Preguntale a Elena</a>
+  <span class="mx-1.5 text-xs text-slate-300">·</span>
+  <a href="/p/?terminos=1" class="text-xs text-slate-400 underline-offset-4 hover:underline">Términos y condiciones</a>
   <p class="mt-3 text-xs font-medium text-slate-500">Cátedra de Ginecología · ${CATEDRA.titularCorta}</p>
   <p class="mt-1 font-mono text-[0.6rem] tracking-[0.15em] text-slate-400 uppercase">Facultad de Medicina · UNT</p>
 </div>`
@@ -675,8 +698,8 @@ async function registrar(sesion: Sesion, codigo: string) {
       recordarCambio(dni)
       return mostrarError(sesion, 'DISPOSITIVO_AJENO')
     }
-    // Celular ya vinculado a este alumno: presente sin tocar nada.
-    if (r.vinculo === 'este' && automatico) return marcar(dni)
+    // Celular ya vinculado y términos aceptados: presente sin tocar nada.
+    if (r.vinculo === 'este' && automatico && terminosAceptados()) return marcar(dni)
     confirmar(dni, r.nombre, r.libreta)
   }
 
@@ -694,7 +717,20 @@ async function registrar(sesion: Sesion, codigo: string) {
             <div class="font-mono text-sm text-slate-400">DNI ${conPuntos(dni)}</div>
           </div>
         </div>
-        <button id="si" class="btn btn-primario mt-6 w-full !py-4 text-lg">Sí, dar presente</button>
+        <div class="mt-5 rounded-2xl border border-linea bg-slate-50/70 p-4">
+          <ul class="space-y-1.5 text-sm text-slate-600">
+            ${TERMINOS_RESUMEN.map((t) => `<li class="flex gap-2"><span class="mt-[0.45rem] h-1.5 w-1.5 shrink-0 rounded-full bg-rosa"></span><span>${esc(t)}</span></li>`).join('')}
+          </ul>
+          <details class="mt-2 text-xs text-slate-500">
+            <summary class="cursor-pointer font-medium text-rosa">Leer los términos completos</summary>
+            <div class="mt-1 max-h-56 overflow-auto pr-1 leading-relaxed">${textoTerminos()}</div>
+          </details>
+          <label class="mt-3 flex cursor-pointer items-start gap-2.5 text-sm font-medium text-tinta">
+            <input id="acepto" type="checkbox" class="mt-0.5 h-5 w-5 shrink-0 accent-rosa" ${terminosAceptados() ? 'checked' : ''} />
+            <span>Leí y acepto los términos y condiciones</span>
+          </label>
+        </div>
+        <button id="si" class="btn btn-primario mt-4 w-full !py-4 text-lg" ${terminosAceptados() ? '' : 'disabled'}>Sí, acepto y doy presente</button>
         <button id="no" class="mt-3 w-full text-center text-sm text-slate-400 underline-offset-4 hover:underline">No soy yo · cambiar DNI</button>
         ${barraPase(pase!.vence)}
         <p class="mt-4 flex items-start gap-2 text-xs text-slate-400">${svg(I.huella, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Este celular queda vinculado a tu libreta: la próxima vez el presente es automático.</p>
@@ -702,7 +738,14 @@ async function registrar(sesion: Sesion, codigo: string) {
       </div>`,
     )
     alVencerPase = vencido
-    document.getElementById('si')!.addEventListener('click', () => marcar(dni))
+    const acepto = document.getElementById('acepto') as HTMLInputElement
+    const si = document.getElementById('si') as HTMLButtonElement
+    acepto.addEventListener('change', () => (si.disabled = !acepto.checked))
+    si.addEventListener('click', () => {
+      if (!acepto.checked) return
+      guardar(CLAVE_TERMINOS, TERMINOS_VERSION)
+      marcar(dni)
+    })
     document.getElementById('no')!.addEventListener('click', () => {
       guardar(CLAVE_DNI, null)
       guardar(CLAVE_NOMBRE, null)
@@ -891,7 +934,7 @@ publico()
     // En la pantalla del código, los horarios reales (p. ej. una apertura manual) pueden cambiar qué mostrar.
     const cod = document.getElementById('cod') as HTMLInputElement | null
     const q = new URLSearchParams(location.search)
-    const enMiAsistencia = q.has('mia') || q.has('cambio')
+    const enMiAsistencia = q.has('mia') || q.has('cambio') || q.has('terminos')
     if (!(s && c) && !enMiAsistencia && (!cod || !cod.value) && !document.getElementById('video') && !document.getElementById('tutorial')) pedirCodigo()
   })
   .catch(() => {
@@ -906,6 +949,8 @@ if (s && c) {
   else mostrarError(undefined, 'SESION_INEXISTENTE')
 } else if (params.has('mia')) {
   verMiAsistencia().catch(() => mostrarError(undefined, 'RED'))
+} else if (params.has('terminos')) {
+  verTerminos()
 } else if (params.has('cambio')) {
   cambioCelular().catch(() => mostrarError(undefined, 'RED'))
 } else {
