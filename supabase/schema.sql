@@ -321,7 +321,8 @@ begin
     'ok', true,
     'nombre', public._nombre_corto(a.nombre),
     'libreta', left(a.libreta, 4) || '•••' || right(a.libreta, 2),
-    'vinculo', case when propio is null then 'libre' when propio = p_huella then 'este' else 'otro' end
+    -- Otro celular u otro navegador del mismo teléfono: se acepta y pasa a este (marcar_presente lo registra).
+    'vinculo', case when propio = p_huella then 'este' else 'libre' end
   );
 end $$;
 
@@ -373,7 +374,12 @@ begin
     select libreta into ocupado from dispositivos where huella = p_huella;
     if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO', null, p_sesion); end if;
     select huella into propio from dispositivos where libreta = a.libreta;
-    if propio is not null and propio <> p_huella then return public._fallo('DISPOSITIVO_AJENO', null, p_sesion); end if;
+    -- Mismo alumno desde otro celular o navegador (p. ej. abrió el QR con otra app): no se bloquea.
+    -- El vínculo pasa a este celular y queda en el historial; un celular sigue sin poder servir a dos alumnos.
+    if propio is not null and propio <> p_huella then
+      perform public._vincular(a.libreta, p_huella, p_public_jwk, 'Cambio automático al dar presente (otro celular o navegador)', 'el alumno');
+      propio := p_huella;
+    end if;
   end if;
 
   select * into aj from ajustes limit 1;
