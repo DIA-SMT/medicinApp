@@ -48,7 +48,8 @@ const totpJs = async (sec, c) => {
   const o = h[31] & 15
   return String((((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1e6).padStart(6, '0')
 }
-const SID = '2026-10-07'
+// Una clase que todavía no se dictó (las pruebas de «sesión futura» dependen de eso).
+const SID = '2026-11-04'
 const sec = (await one('select secreto from sesion_secretos where sesion_id = $1', [SID])).secreto
 let iguales = 0
 for (let c = 88_000_000; c < 88_000_200; c++) if ((await one('select public._totp($1, $2::bigint) t', [sec, c])).t === (await totpJs(sec, c))) iguales++
@@ -110,8 +111,17 @@ ok(!r.ok && r.error === 'DISPOSITIVO_OCUPADO', 'mismo celular, otro alumno → D
 const par2 = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
 const jwk2 = await crypto.subtle.exportKey('jwk', par2.publicKey)
 const huella2 = toHex(await crypto.subtle.digest('SHA-256', enc.encode(`${jwk2.x}.${jwk2.y}`)))
-r = await marcar('10000001', huella2, jwk2)
-ok(!r.ok && r.error === 'DISPOSITIVO_AJENO', 'mismo alumno, otro celular → DISPOSITIVO_AJENO')
+// Mismo alumno desde otro celular o navegador: no se bloquea; el vínculo pasa al nuevo y queda en el historial.
+const par3 = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+const jwk3 = await crypto.subtle.exportKey('jwk', par3.publicKey)
+const huella3 = toHex(await crypto.subtle.digest('SHA-256', enc.encode(`${jwk3.x}.${jwk3.y}`)))
+r = (await one('select identificar($1,$2,$3,$4) r', [SID, pase, '10000001', huella3])).r
+ok(r.ok && r.vinculo === 'libre', 'mismo alumno, otro navegador: identificar no lo frena')
+r = await marcar('10000001', huella3, jwk3)
+ok(r.ok && (await one(`select huella from dispositivos where libreta = 'MD0000001'`)).huella === huella3, 'mismo alumno, otro celular → presente y el vínculo pasa al nuevo')
+ok((await one(`select count(*)::int n from auditoria where accion = 'celular_cambiado' and libreta = 'MD0000001'`)).n === 1, 'el cambio automático queda en el historial')
+await q(`update dispositivos set huella = $1, public_jwk = $2::jsonb where libreta = 'MD0000001'`, [huella, JSON.stringify(jwk)])
+await db.exec(`delete from auditoria where accion = 'celular_cambiado'`)
 r = await marcar('10000002', huella, jwk2)
 ok(!r.ok && r.error === 'FIRMA_INVALIDA', 'huella que no corresponde a la clave → FIRMA_INVALIDA')
 r = await marcar('10000002', huella2, jwk2, Date.now() - 10 * 60e3)
