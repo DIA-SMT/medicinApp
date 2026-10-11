@@ -184,7 +184,7 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   CODIGO_INVALIDO: { titulo: 'Código vencido', texto: () => 'El QR proyectado cambia cada 20 segundos. Escaneá el que se ve ahora en pantalla (las capturas reenviadas no sirven).' },
   PASE_VENCIDO: { titulo: 'Se agotó el tiempo', texto: () => 'Pasaron más de 3 minutos desde que escaneaste. Volvé a escanear el QR del aula.' },
   DNI_DESCONOCIDO: { titulo: 'DNI no encontrado', texto: () => 'Ese DNI no figura en la planilla de la materia.' },
-  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Por seguridad cada alumno usa un único celular. Si cambiaste de teléfono o borraste los datos del navegador, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra.' },
+  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Ya cambiaste de celular o de navegador una vez. Si volviste a cambiar, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra. Si es el mismo teléfono, abrí el QR con la misma app de siempre.' },
   NO_VALORABLE: { titulo: 'No se puede valorar', texto: (d) => d ?? 'Sólo se valoran las clases en las que diste presente, cuando terminan.' },
   CONSULTA_INVALIDA: { titulo: 'No se pudo enviar', texto: (d) => d ?? 'Revisá tu consulta y probá de nuevo.' },
   SIN_VINCULO: { titulo: 'Todavía no tenés celular vinculado', texto: () => 'No hace falta pedir nada: escaneá el QR en clase desde este celular y queda vinculado.' },
@@ -192,7 +192,14 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   DISPOSITIVO_OCUPADO: { titulo: 'Este celular ya registró a otra persona', texto: () => 'Cada celular queda asociado a un solo alumno. Registrate desde tu propio teléfono o pedile a la cátedra el presente manual.' },
   FIRMA_INVALIDA: { titulo: 'No se pudo verificar el celular', texto: () => 'Revisá que la fecha y hora del teléfono estén en automático y volvé a intentar.', reintentar: true },
   SUSPENDIDA: { titulo: 'La clase se suspendió', texto: (d) => `${d ? `Motivo: ${d}. ` : ''}No hay que dar presente y esta clase no cuenta para la regularidad.` },
-  FUERA_DE_RANGO: { titulo: 'Fuera de la Facultad', texto: () => 'El presente sólo se acepta desde el aula.', reintentar: true },
+  FUERA_DE_RANGO: {
+    titulo: 'No pudimos verificar que estés en el aula',
+    texto: (d) =>
+      d
+        ? `Tu celular indica que estás a unos ${Number(d) >= 1000 ? `${(Number(d) / 1000).toFixed(1)} km` : `${d} m`} del aula. Si estás en clase, activá la ubicación precisa del celular y reintentá. Si sigue sin funcionar, pedí el presente manual a la cátedra.`
+        : 'Para dar presente hay que permitir la ubicación. Activá la ubicación del celular; si el navegador la tiene bloqueada, tocá el candado junto a la dirección → Permisos → Ubicación → Permitir. Después reintentá. Si no podés, pedí el presente manual a la cátedra.',
+    reintentar: true,
+  },
   SIN_CRYPTO: { titulo: 'Navegador no compatible', texto: () => 'Abrí el enlace con Chrome o Safari actualizados.' },
   NO_AUTORIZADO: { titulo: 'Sin autorización', texto: () => 'No tenés permisos para esta acción.' },
   RED: { titulo: 'Sin conexión', texto: (d) => d ?? 'Revisá los datos móviles o el Wi-Fi y volvé a intentar.', reintentar: true },
@@ -812,11 +819,12 @@ async function registrar(sesion: Sesion, codigo: string) {
   }
 
   const marcar = async (dni: string) => {
-    cargando(sesion, 'Registrando presente')
+    cargando(sesion, GEO_MODO === 'exigir' && !sesion.ensayo ? 'Verificando que estés en el aula' : 'Registrando presente')
     const ts = Date.now() + (pase!.desfase ?? 0)
     const firma = await firmar(dispositivo, `${sesion.id}|${pase!.pase}|${dni}|${ts}`)
     // Sólo para registrar a cuántos metros del aula se dio el presente; si no hay permiso o GPS, sigue igual.
-    const ubicacion = GEO_MODO === 'off' ? null : await (ubicacionPedida ??= obtenerUbicacion(5000))
+    // En modo «exigir» la ubicación es obligatoria: se le da más tiempo al GPS (adentro de un edificio tarda).
+    const ubicacion = GEO_MODO === 'off' ? null : await (ubicacionPedida ??= obtenerUbicacion(GEO_MODO === 'exigir' ? 10_000 : 5000))
     const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })
     if (!r.ok) {
       if (r.error === 'DISPOSITIVO_AJENO') recordarCambio(dni)
@@ -887,7 +895,7 @@ async function registrar(sesion: Sesion, codigo: string) {
         <button id="no" class="mt-3 w-full text-center text-sm text-slate-400 underline-offset-4 hover:underline">No soy yo · cambiar DNI</button>
         ${barraPase(pase!.vence)}
         <p class="mt-4 flex items-start gap-2 text-xs text-slate-400">${svg(I.huella, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Este celular queda vinculado a tu libreta: la próxima vez el presente es automático.</p>
-        ${GEO_MODO === 'off' ? '' : `<p class="mt-2 flex items-start gap-2 text-xs text-slate-400">${svg(I.ubicacion, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Si te pide la ubicación, aceptá: sólo se guarda a cuántos metros del aula estás, no dónde. Si no, el presente se da igual.</p>`}
+        ${GEO_MODO === 'off' ? '' : `<p class="mt-2 flex items-start gap-2 text-xs text-slate-400">${svg(I.ubicacion, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} ${GEO_MODO === 'exigir' ? '<b class="text-slate-500">Te va a pedir la ubicación: aceptá, es obligatoria para dar presente.</b> Sólo se guarda a cuántos metros del aula estás, no dónde.' : 'Si te pide la ubicación, aceptá: sólo se guarda a cuántos metros del aula estás, no dónde. Si no, el presente se da igual.'}</p>`}
       </div>`,
     )
     alVencerPase = vencido
@@ -954,7 +962,7 @@ async function registrar(sesion: Sesion, codigo: string) {
   }
 
   // Con el DNI ya guardado (el permiso de ubicación ya se respondió antes), la ubicación se pide en paralelo.
-  if (leer(CLAVE_DNI) && GEO_MODO !== 'off') ubicacionPedida ??= obtenerUbicacion(4000)
+  if (leer(CLAVE_DNI) && GEO_MODO !== 'off') ubicacionPedida ??= obtenerUbicacion(GEO_MODO === 'exigir' ? 10_000 : 4000)
 
   const dniGuardado = leer(CLAVE_DNI)
   if (dniGuardado) await identificar(dniGuardado, true)

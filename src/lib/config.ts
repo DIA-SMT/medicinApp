@@ -19,16 +19,17 @@ export const UMBRAL_REGULARIDAD = 75
 
 /**
  * Geocercado: 'off' no pide ubicación, 'registrar' guarda sólo la distancia a la sede y el panel marca a
- * quien estaba lejos (nunca frena el presente), 'exigir' rechaza fuera del radio.
- * Debe coincidir con la tabla `ajustes` en Supabase.
+ * quien estaba lejos (nunca frena el presente), 'exigir' sólo acepta el presente desde el aula (descontando
+ * el margen de error del GPS). Debe coincidir con la tabla `ajustes` en Supabase, que es la que manda.
  */
 export type ModoGeo = 'off' | 'registrar' | 'exigir'
-export const GEO_MODO = 'registrar' as ModoGeo
+export const GEO_MODO = 'exigir' as ModoGeo
 export const SEDE = {
   nombre: 'Facultad de Medicina · UNT',
   direccion: 'Lamadrid 875, San Miguel de Tucumán',
-  lat: -26.8364465,
-  lng: -65.2120858,
+  // Punto de referencia del aula (hoy: Instituto de Maternidad, Av. Mate de Luna 1535). El que vale es el de `ajustes`.
+  lat: -26.8270577,
+  lng: -65.2208282,
   radioM: 150,
 }
 

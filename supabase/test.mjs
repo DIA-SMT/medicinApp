@@ -28,6 +28,9 @@ await db.exec(`
 await db.exec(fs.readFileSync(`${ROOT}/supabase/schema.sql`, 'utf8'))
 await db.exec(fs.readFileSync(`${ROOT}/supabase/seed.sql`, 'utf8'))
 ok(true, 'schema.sql + seed.sql ejecutan sin errores')
+ok((await one('select geo_modo from ajustes')).geo_modo === 'exigir', 'por defecto la ubicación es obligatoria')
+// Las pruebas generales corren en modo «registrar»; el modo «exigir» se prueba aparte.
+await db.exec(`update ajustes set geo_modo = 'registrar'`)
 ok((await one('select count(*)::int n from alumnos where not ficticio')).n === 195, 'padrón: 195 alumnos (más 5 DNIs de prueba para ensayos)')
 ok((await one('select count(*)::int n from sesiones where not ensayo')).n === 12, 'cronograma: 12 sesiones (más la clase de ensayo)')
 ok((await one('select count(*)::int n from sesion_secretos')).n === 13, 'una semilla por sesión')
@@ -121,6 +124,14 @@ r = await marcar('10000001', huella3, jwk3)
 ok(r.ok && (await one(`select huella from dispositivos where libreta = 'MD0000001'`)).huella === huella3, 'mismo alumno, otro celular → presente y el vínculo pasa al nuevo')
 ok((await one(`select count(*)::int n from auditoria where accion = 'celular_cambiado' and libreta = 'MD0000001'`)).n === 1, 'el cambio automático queda en el historial')
 await q(`update dispositivos set huella = $1, public_jwk = $2::jsonb where libreta = 'MD0000001'`, [huella, JSON.stringify(jwk)])
+// Segundo cambio automático: ya no entra solo (lo aprueba la cátedra).
+const par4 = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+const jwk4 = await crypto.subtle.exportKey('jwk', par4.publicKey)
+const huella4 = toHex(await crypto.subtle.digest('SHA-256', enc.encode(`${jwk4.x}.${jwk4.y}`)))
+r = (await one('select identificar($1,$2,$3,$4) r', [SID, pase, '10000001', huella4])).r
+ok(r.ok && r.vinculo === 'otro', 'segundo cambio de celular: identificar avisa que es otro')
+r = await marcar('10000001', huella4, jwk4)
+ok(!r.ok && r.error === 'DISPOSITIVO_AJENO' && (await one(`select huella from dispositivos where libreta = 'MD0000001'`)).huella === huella, 'el segundo cambio automático se bloquea y no toca el vínculo')
 await db.exec(`delete from auditoria where accion = 'celular_cambiado'`)
 r = await marcar('10000002', huella, jwk2)
 ok(!r.ok && r.error === 'FIRMA_INVALIDA', 'huella que no corresponde a la clave → FIRMA_INVALIDA')
@@ -139,6 +150,13 @@ await db.exec(`update ajustes set geo_modo = 'exigir'`)
 await db.exec(`delete from asistencias where libreta = 'MD0000002'`)
 r = await marcar('10000002', huella2, jwk2, Date.now(), -26.8, -65.25)
 ok(!r.ok && r.error === 'FUERA_DE_RANGO', 'modo exigir y a ~5 km → FUERA_DE_RANGO', r.detalle)
+r = await marcar('10000002', huella2, jwk2, Date.now(), null, null)
+ok(!r.ok && r.error === 'FUERA_DE_RANGO' && r.detalle === '', 'modo exigir sin ubicación → FUERA_DE_RANGO')
+ok((await one(`select count(*)::int n from dispositivos where huella = $1`, [huella2])).n === 1, 'un rechazo por ubicación no cambia los vínculos')
+// ~250 m de la sede pero con 120 m de margen de error del GPS: se acepta (puede estar en el aula).
+r = (await one('select marcar_presente($1,$2,$3,$4,$5::jsonb,$6,$7::bigint,$8,$9,$10) r', [SID, pase, '10000002', huella2, JSON.stringify(jwk2), 'f', Date.now(), -26.8341965, -65.2120858, 120])).r
+ok(r.ok && r.distanciaM > 200, 'modo exigir: se descuenta el margen de error del GPS', r.distanciaM)
+await db.exec(`delete from asistencias where libreta = 'MD0000002' and sesion_id = '${SID}'`)
 await db.exec(`update ajustes set geo_modo = 'registrar'`)
 
 // ── Cierre manual ──
@@ -252,6 +270,10 @@ ok(r.ok && r.estado === 'REGISTRADO', 'el mismo celular puede probar con otro DN
 // Un celular ya vinculado a un alumno real puede usar un DNI de prueba en el ensayo
 r = await marcarE('ensayo', paseE, '1000003', huella2, jwk2)
 ok(r.ok, 'celular de un alumno real con DNI de prueba en el ensayo → presente, sin tocar su vínculo')
+await db.exec(`update ajustes set geo_modo = 'exigir'`)
+r = await marcarE('ensayo', paseE, '1000004', huellaE, jwkE)
+ok(r.ok, 'el ensayo no exige ubicación (se prueba desde cualquier lado)')
+await db.exec(`update ajustes set geo_modo = 'registrar'`)
 ok((await one(`select libreta from dispositivos where huella = $1`, [huella2])).libreta === 'MD0000002', 'su vínculo real sigue intacto')
 // En una clase real los DNIs de prueba no existen
 const SIDR = '2026-10-14'
@@ -288,7 +310,7 @@ ok(errDoc && errDoc.includes('NO_AUTORIZADO'), 'fallos: sólo la cátedra los ve
 await db.exec(`select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","email":"Catedra@Ejemplo.edu.ar"}', false)`)
 const borrados = (await one('select docente_terminar_ensayo() n')).n
 await db.exec(`select set_config('request.jwt.claims', '', false)`)
-ok(borrados === 3 && (await one(`select count(*)::int n from asistencias where sesion_id = 'ensayo'`)).n === 0, 'terminar ensayo borra sus presentes', borrados)
+ok(borrados === 4 && (await one(`select count(*)::int n from asistencias where sesion_id = 'ensayo'`)).n === 0, 'terminar ensayo borra sus presentes', borrados)
 ok((await one(`select count(*)::int n from fallos where sesion_id = 'ensayo'`)).n === 0 && (await one(`select manual_hasta from sesiones where id = 'ensayo'`)).manual_hasta === null, 'terminar ensayo borra los fallos y cierra la clase')
 
 // ── Cuentas de la cátedra (administradores) ──

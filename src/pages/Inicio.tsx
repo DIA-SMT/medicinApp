@@ -1,4 +1,4 @@
-import { ArrowRight, BatteryLow, CalendarDays, Camera, ChevronDown, CircleCheck, Clock, FileSpreadsheet, FingerprintPattern, IdCard, MessageCircle, PlayCircle, QrCode, ScanLine, ShieldCheck, Smartphone, Timer, UserX } from 'lucide-react'
+import { ArrowRight, BatteryLow, CalendarDays, Camera, ChevronDown, CircleCheck, Clock, FileSpreadsheet, FingerprintPattern, IdCard, MapPin, MessageCircle, PlayCircle, QrCode, ScanLine, ShieldCheck, Smartphone, Timer, UserX } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Agendar } from '../components/Agendar'
 import { DnaHelix } from '../components/DnaHelix'
@@ -29,7 +29,8 @@ const SEGURIDAD = [
 
 const PREGUNTAS: { icono: typeof Camera; p: string; r: string }[] = [
   { icono: BatteryLow, p: 'Me quedé sin batería o no tengo celular', r: 'Avisale a la cátedra en la clase: te cargan el presente manual.' },
-  { icono: Smartphone, p: 'Cambié de celular o borré los datos del navegador', r: 'Si todavía tenés el anterior, en «Mi asistencia» tocá «Cambiar de celular»: te da un código para escribir en el nuevo y listo. Si lo perdiste, desde el nuevo entrá a «Dar presente» y pedí el cambio: lo aprueba la cátedra.' },
+  { icono: Smartphone, p: 'Cambié de celular o borré los datos del navegador', r: 'La primera vez que das presente desde otro celular o navegador, el cambio se acepta solo y queda registrado. Desde la segunda: si tenés el anterior, en «Mi asistencia» tocá «Cambiar de celular» y escribí el código en el nuevo; si lo perdiste, desde el nuevo entrá a «Dar presente» y pedí el cambio: lo aprueba la cátedra.' },
+  { icono: MapPin, p: '¿Por qué me pide la ubicación?', r: 'Para comprobar que estás en el aula: sin ubicación no se puede dar presente. Sólo se guarda a cuántos metros del aula estabas, nunca dónde. Si dice que no pudimos verificar que estés en el aula, activá la ubicación del celular (y del navegador) y reintentá; si no podés, pedí el presente manual en la clase.' },
   { icono: UserX, p: '¿Puedo dar presente desde el celular de un compañero?', r: 'No. Cada celular queda vinculado a un solo alumno: si lo usás vos, tu compañero ya no puede registrarse con el suyo.' },
   { icono: Clock, p: `Llegué después de las ${CIERRE_DEFAULT}`, r: 'El registro ya cerró. Si estuviste en la clase, hablalo con la cátedra en el momento.' },
   { icono: QrCode, p: '¿Me sirve una foto del QR que me pasaron?', r: `No: el código del aula cambia cada ${TOTP_PASO_S} segundos y la foto llega vencida.` },
@@ -195,7 +196,7 @@ export function Inicio() {
                 </div>
               ))}
             </div>
-            <p className="px-5 pb-5 text-xs text-slate-500">El DNI sólo se usa para encontrarte en la planilla de la materia. Si el celular pide la ubicación, sólo se guarda a cuántos metros del aula diste el presente (no dónde estás), y si no la das el presente se da igual. No se instala nada.</p>
+            <p className="px-5 pb-5 text-xs text-slate-500">El DNI sólo se usa para encontrarte en la planilla de la materia. Para dar presente hay que permitir la ubicación: sólo se guarda a cuántos metros del aula diste el presente (no dónde estás). No se instala nada.</p>
           </details>
         </Seccion>
 

@@ -182,6 +182,23 @@ export function crearSupabaseAdmin(): AdminApi {
 
     terminarEnsayo: () => rpc<number>('docente_terminar_ensayo', {}),
 
+    async cambiosAutomaticos() {
+      const { data, error } = await sb.from('auditoria').select('en, libreta').eq('accion', 'celular_cambiado').like('detalle', 'Cambio automático%')
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((f) => ({ libreta: f.libreta as string, en: Date.parse(f.en) }))
+    },
+
+    async conteos() {
+      const { data, error } = await sb.from('sesiones').select('id, conteo').not('conteo', 'is', null)
+      if (error) throw new Error(error.message)
+      return Object.fromEntries((data ?? []).map((f) => [f.id as string, f.conteo as number]))
+    },
+
+    async guardarConteo(sesionId, n) {
+      const { error } = await sb.from('sesiones').update({ conteo: n }).eq('id', sesionId)
+      if (error) throw new Error(error.message)
+    },
+
     fallos: (sesionId) => rpc<{ recientes: Record<string, number>; total: Record<string, number> }>('docente_fallos', { p_sesion: sesionId }),
 
     async auditoria() {

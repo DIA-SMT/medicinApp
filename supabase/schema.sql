@@ -45,6 +45,8 @@ alter table public.sesiones add column if not exists ensayo boolean not null def
 -- dictada ni como restante. Es reversible: los presentes que ya hubiera se conservan y vuelven a contar al reanudarla.
 alter table public.sesiones add column if not exists suspendida boolean not null default false;
 alter table public.sesiones add column if not exists motivo_suspension text;
+-- Conteo de personas en el aula que carga la cátedra, para compararlo con los presentes.
+alter table public.sesiones add column if not exists conteo int check (conteo between 0 and 1000);
 
 create table if not exists public.sesion_secretos (
   sesion_id text primary key references public.sesiones(id) on delete cascade,
@@ -87,7 +89,7 @@ alter table public.docentes add column if not exists agregado_por text;
 
 create table if not exists public.ajustes (
   id       boolean primary key default true check (id),
-  geo_modo text not null default 'registrar' check (geo_modo in ('off', 'registrar', 'exigir')),
+  geo_modo text not null default 'exigir' check (geo_modo in ('off', 'registrar', 'exigir')),
   sede_lat double precision not null default -26.8364465,
   sede_lng double precision not null default -65.2120858,
   radio_m  int not null default 150
@@ -155,7 +157,7 @@ revoke all on public.alumnos, public.sesiones, public.sesion_secretos, public.di
 grant select on public.sesiones, public.ajustes to anon, authenticated;
 -- Sólo los horarios: suspender una clase pasa por admin_suspender (administradores, con auditoría).
 revoke update on public.sesiones from authenticated;
-grant update (apertura, cierre, manual_desde, manual_hasta, cerrada_en) on public.sesiones to authenticated;
+grant update (apertura, cierre, manual_desde, manual_hasta, cerrada_en, conteo) on public.sesiones to authenticated;
 grant select on public.alumnos to authenticated;
 grant select, insert, update, delete on public.asistencias, public.dispositivos to authenticated;
 
@@ -243,6 +245,13 @@ begin
   return jsonb_build_object('ok', false, 'error', codigo, 'detalle', detalle);
 end $$;
 
+/** Si el alumno ya usó su único cambio automático de celular (los siguientes los aprueba la cátedra). */
+create or replace function public._ya_cambio_automatico(p_libreta text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+begin
+  return exists (select 1 from auditoria where accion = 'celular_cambiado' and libreta = p_libreta and detalle like 'Cambio automático%');
+end $$;
+
 create or replace function public._es_ensayo(sid text) returns boolean
 language sql stable set search_path = public as $$ select coalesce((select ensayo from sesiones where id = sid), false) $$;
 
@@ -321,8 +330,12 @@ begin
     'ok', true,
     'nombre', public._nombre_corto(a.nombre),
     'libreta', left(a.libreta, 4) || '•••' || right(a.libreta, 2),
-    -- Otro celular u otro navegador del mismo teléfono: se acepta y pasa a este (marcar_presente lo registra).
-    'vinculo', case when propio = p_huella then 'este' else 'libre' end
+    -- Otro celular u otro navegador: la primera vez se acepta y pasa a este (marcar_presente lo registra);
+    -- si ya usó su cambio automático, «otro» (el alumno pide el cambio a la cátedra).
+    'vinculo', case
+      when propio is null or propio = p_huella then (case when propio = p_huella then 'este' else 'libre' end)
+      when public._ya_cambio_automatico(a.libreta) then 'otro'
+      else 'libre' end
   );
 end $$;
 
@@ -369,27 +382,33 @@ begin
     return public._fallo('FIRMA_INVALIDA', null, p_sesion);
   end if;
 
-  -- Un DNI de prueba no controla ni vincula el celular: así un ensayo no bloquea el teléfono de nadie.
-  if not a.ficticio then
-    select libreta into ocupado from dispositivos where huella = p_huella;
-    if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO', null, p_sesion); end if;
-    select huella into propio from dispositivos where libreta = a.libreta;
-    -- Mismo alumno desde otro celular o navegador (p. ej. abrió el QR con otra app): no se bloquea.
-    -- El vínculo pasa a este celular y queda en el historial; un celular sigue sin poder servir a dos alumnos.
-    if propio is not null and propio <> p_huella then
-      perform public._vincular(a.libreta, p_huella, p_public_jwk, 'Cambio automático al dar presente (otro celular o navegador)', 'el alumno');
-      propio := p_huella;
-    end if;
-  end if;
-
+  -- Ubicación (antes de tocar el vínculo, para que un rechazo no deje cambios a medias).
+  -- En modo «exigir» hay que estar en el aula: se descuenta el margen de error del GPS (hasta 150 m).
+  -- El ensayo no la exige: se prueba desde cualquier lado.
   select * into aj from ajustes limit 1;
   if p_lat is not null and p_lng is not null then
     dist := 2 * 6371000 * asin(sqrt(
       power(sin(radians(aj.sede_lat - p_lat) / 2), 2) +
       cos(radians(p_lat)) * cos(radians(aj.sede_lat)) * power(sin(radians(aj.sede_lng - p_lng) / 2), 2)));
   end if;
-  if aj.geo_modo = 'exigir' and (dist is null or dist > aj.radio_m) then
+  if aj.geo_modo = 'exigir' and not public._es_ensayo(p_sesion)
+     and (dist is null or dist - least(coalesce(p_precision, 0), 150) > aj.radio_m) then
     return public._fallo('FUERA_DE_RANGO', coalesce(round(dist)::text, ''), p_sesion);
+  end if;
+
+  -- Un DNI de prueba no controla ni vincula el celular: así un ensayo no bloquea el teléfono de nadie.
+  if not a.ficticio then
+    select libreta into ocupado from dispositivos where huella = p_huella;
+    if ocupado is not null and ocupado <> a.libreta then return public._fallo('DISPOSITIVO_OCUPADO', null, p_sesion); end if;
+    select huella into propio from dispositivos where libreta = a.libreta;
+    -- Mismo alumno desde otro celular o navegador (p. ej. abrió el QR con otra app): la primera vez no se
+    -- bloquea (el vínculo pasa a este celular y queda en el historial). Desde la segunda, lo aprueba la cátedra:
+    -- si no, cualquiera podría dar presente por otro desde una pestaña de incógnito.
+    if propio is not null and propio <> p_huella then
+      if public._ya_cambio_automatico(a.libreta) then return public._fallo('DISPOSITIVO_AJENO', null, p_sesion); end if;
+      perform public._vincular(a.libreta, p_huella, p_public_jwk, 'Cambio automático al dar presente (otro celular o navegador)', 'el alumno');
+      propio := p_huella;
+    end if;
   end if;
 
   if propio is null and not a.ficticio then
@@ -629,7 +648,7 @@ end $$;
 -- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
-  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text), public._exigir_admin(), public._otro_admin_activo(text),
+  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text), public._ya_cambio_automatico(text), public._exigir_admin(), public._otro_admin_activo(text),
   public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
   public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text), public._progreso(text, text)
 from public, anon, authenticated;
