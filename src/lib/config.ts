@@ -23,6 +23,14 @@ export const UMBRAL_REGULARIDAD = 75
  * el margen de error del GPS). Debe coincidir con la tabla `ajustes` en Supabase, que es la que manda.
  */
 export type ModoGeo = 'off' | 'registrar' | 'exigir'
+
+/**
+ * Dominio donde los alumnos dan presente. La llave de cada celular queda guardada en el navegador para ESE
+ * dominio: si el QR apuntara a otro (p. ej. ginecoapp.com.ar), todos los celulares aparecerían como nuevos.
+ * Este cursado empezó en medicinapp.vercel.app y ahí se queda; ginecoapp.com.ar/p/ redirige acá (vercel.json).
+ * Para un cursado nuevo (celulares nuevos) se puede pasar a ginecoapp.com.ar cambiando esto y el redirect.
+ */
+export const ORIGEN_ALUMNOS = 'https://medicinapp.vercel.app'
 export const GEO_MODO = 'exigir' as ModoGeo
 export const SEDE = {
   nombre: 'Facultad de Medicina · UNT',

@@ -8,7 +8,7 @@ import { useAdmin } from '../data/admin'
 import type { ResumenSesion } from '../data/types'
 import { CATEDRA, TOTP_PASO_S } from '../lib/config'
 import { CRONOGRAMA, DNIS_ENSAYO, docentesSesion, sesionPorId } from '../lib/cronograma'
-import { enlaceRegistro } from '../lib/enlaces'
+import { enlaceRegistro, hostAlumnos } from '../lib/enlaces'
 import { nombreCorto } from '../lib/format'
 import { useDesfase, useEnLinea, useNow, useVentanas } from '../lib/hooks'
 import { clasesVigentes, cuenta, diaSemana, fechaCorta, hmArt, hoyIso, horaArt, infoVentana, sesionActual, suspendida, ventanaDefault, type Ventana } from '../lib/time'
@@ -321,6 +321,11 @@ export function Aula() {
             </div>
           </div>
 
+          {abierta && info.cierra - now < 5 * 60e3 && (
+            <div className="entrada mt-5 rounded-2xl bg-ambar px-6 py-3 text-center font-display text-2xl font-bold text-white shadow-lg lg:text-4xl">
+              Cierra en {cuenta(info.cierra - now)} · escaneá ahora
+            </div>
+          )}
           {abierta && token && (
             <div className="mt-6 flex items-center gap-3 sm:gap-5">
               <div className="hidden text-right sm:block">
@@ -418,6 +423,9 @@ export function Aula() {
                   <span className="text-sm leading-tight font-semibold text-tinta lg:text-base xl:text-lg">{texto}</span>
                 </li>
               ))}
+              <li className="col-span-full -mt-1 text-center text-sm text-slate-500 lg:text-base">
+                ¿Ya diste presente antes? Abrí <b className="font-mono text-tinta">{hostAlumnos()}/p/</b> y tocá «Escanear»
+              </li>
             </ol>
           )}
 
