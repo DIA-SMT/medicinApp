@@ -99,6 +99,11 @@ const p = r.progreso
 ok(p && p.presentes === 1 && p.dictadas === 1 && p.dictadas + p.restantes <= 12, 'marcar devuelve el progreso: la clase en curso cuenta como dictada', p)
 r = await marcar('10000001', huella, jwk)
 ok(r.ok && r.estado === 'YA_REGISTRADO' && r.progreso, 'reintento idempotente → YA_REGISTRADO (con progreso)')
+ok((await one(`select count(*)::int n from terminos_aceptados`)).n === 0, 'sin versión de términos no se registra aceptación')
+r = (await one('select marcar_presente($1,$2,$3,$4,$5::jsonb,$6,$7::bigint,$8,$9,$10,$11) r', [SID, pase, '10000001', huella, JSON.stringify(jwk), 'f', Date.now(), -26.8366, -65.2119, 12, '2026-10-14'])).r
+ok(r.ok, 'marcar con la versión de los términos aceptada')
+const term = await one(`select libreta, version, sesion_id from terminos_aceptados`)
+ok(term?.libreta === 'MD0000001' && term.version === '2026-10-14' && term.sesion_id === SID, 'queda registrada la aceptación de los términos', term)
 
 // ── Mi asistencia (consulta del alumno desde su celular vinculado) ──
 let mia = (await one('select mi_asistencia($1,$2) r', ['10.000.001', huella])).r
@@ -273,6 +278,12 @@ ok(r.ok, 'celular de un alumno real con DNI de prueba en el ensayo → presente,
 await db.exec(`update ajustes set geo_modo = 'exigir'`)
 r = await marcarE('ensayo', paseE, '1000004', huellaE, jwkE)
 ok(r.ok, 'el ensayo no exige ubicación (se prueba desde cualquier lado)')
+await db.exec(`update ajustes set ensayo_ubicacion = true`)
+ok((await pE('ensayo')).ubicacion === 'exigir', 'abrir_pase avisa que la ubicación es obligatoria')
+r = await marcarE('ensayo', paseE, '1000005', huellaE, jwkE)
+ok(!r.ok && r.error === 'FUERA_DE_RANGO', 'ensayo con ubicación: sin ubicación → FUERA_DE_RANGO (para probarla en el aula)')
+await db.exec(`update ajustes set ensayo_ubicacion = false`)
+ok((await pE('ensayo')).ubicacion === 'registrar', 'ensayo sin ubicación obligatoria')
 await db.exec(`update ajustes set geo_modo = 'registrar'`)
 ok((await one(`select libreta from dispositivos where huella = $1`, [huella2])).libreta === 'MD0000002', 'su vínculo real sigue intacto')
 // En una clase real los DNIs de prueba no existen
@@ -512,6 +523,42 @@ const respondida = mias.find((x) => x.respuesta)
 ok(mias.length === 3 && respondida?.respuesta === 'El primer parcial es el 21/10.' && respondida.respondidaEn, 'el alumno ve la respuesta en su celular', mias.length)
 ok((await one(`select respondida_por from consultas where respuesta is not null`)).respondida_por === 'Catedra@Ejemplo.edu.ar', 'queda quién respondió')
 ok(!(await rpcJ('mis_consultas', '10000001', 'f'.repeat(64))).ok, 'nadie ve las consultas de otro')
+
+// ── Ajustes de ubicación desde el panel ──
+ok((await error(`select docente_ajustes('registrar', null)`))?.includes('NO_AUTORIZADO'), 'el anónimo no cambia la ubicación')
+await comoCatedra()
+ok((await error(`select docente_ajustes('off', null)`))?.includes('MODO_INVALIDO'), 'sólo «exigir» o «registrar» desde el panel')
+await one(`select docente_ajustes('exigir', true)`)
+let aj = await one('select geo_modo, ensayo_ubicacion from ajustes')
+ok(aj.geo_modo === 'exigir' && aj.ensayo_ubicacion === true, 'la cátedra exige la ubicación y la prueba en el ensayo')
+await one(`select docente_ajustes('registrar', null)`)
+aj = await one('select geo_modo, ensayo_ubicacion from ajustes')
+ok(aj.geo_modo === 'registrar' && aj.ensayo_ubicacion === true, 'null deja el ajuste como estaba')
+ok((await one(`select count(*)::int n from auditoria where accion = 'ajustes_cambiados' and por = 'Catedra@Ejemplo.edu.ar'`)).n === 2, 'los cambios de ubicación quedan en la auditoría')
+await one(`select docente_ajustes(null, false)`)
+
+// ── Padrón (sólo administradores) y respaldo ──
+await db.exec(`update docentes set rol = 'docente' where email = 'catedra@ejemplo.edu.ar'`)
+ok((await error(`select admin_agregar_alumnos('[]'::jsonb)`))?.includes('NO_AUTORIZADO'), 'un docente no toca el padrón')
+ok((await error(`select admin_respaldo()`))?.includes('NO_AUTORIZADO'), 'un docente no descarga el respaldo')
+await db.exec(`update docentes set rol = 'admin' where email = 'catedra@ejemplo.edu.ar'`)
+const antes = (await one('select count(*)::int n from alumnos')).n
+const pad = (await one(`select admin_agregar_alumnos($1::jsonb) r`, [JSON.stringify([
+  { libreta: 'md 999.001', nombre: '  Nuevo,   Alumno  ', dni: '40.111.222' },
+  { libreta: 'MD0000001', nombre: 'Demo, Alumno Corregido', dni: '10000001' },
+  { libreta: 'MD999002', nombre: 'Otro, Alumno', dni: '10000002' },
+  { libreta: 'ENSAYO09', nombre: 'Trampa, Ensayo', dni: '1000009' },
+  { libreta: 'MD999003', nombre: 'X', dni: '123' },
+])])).r
+ok(pad.agregados === 1 && pad.actualizados === 1 && pad.errores.length === 3, 'padrón: agrega, corrige y rechaza lo inválido o repetido', pad)
+const nuevo = await one(`select nombre, dni, ficticio from alumnos where libreta = 'MD999001'`)
+ok(nuevo?.nombre === 'Nuevo, Alumno' && nuevo.dni === '40111222' && nuevo.ficticio === false, 'el alumno nuevo queda normalizado', nuevo)
+ok((await one('select count(*)::int n from alumnos')).n === antes + 1, 'el padrón nunca borra a nadie')
+const resp = (await one('select admin_respaldo() r')).r
+ok(resp.alumnos.length > 0 && resp.asistencias.length > 0 && resp.sesiones.length === 12 && resp.auditoria.length > 0, 'respaldo con alumnos, sesiones, asistencias y auditoría')
+ok(!/"(secreto|public_jwk|firma|ip)"/.test(JSON.stringify(resp)) && resp.valoraciones.every((v) => !('libreta' in v)), 'el respaldo no incluye secretos y las valoraciones siguen anónimas')
+ok(resp.alumnos.every((a) => !a.ficticio) && resp.asistencias.every((x) => x.sesion_id !== 'ensayo'), 'el respaldo deja afuera el ensayo')
+await db.exec(`select set_config('request.jwt.claims', '', false)`)
 
 console.log(fallos ? `\n${fallos} FALLO(S)` : '\nTODO OK')
 process.exit(fallos ? 1 : 0)

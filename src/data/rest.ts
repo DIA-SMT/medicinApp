@@ -107,5 +107,6 @@ export const restPublico: PublicoApi = {
       p_sesion: p.sesionId, p_pase: p.pase, p_dni: p.dni, p_huella: p.huella, p_public_jwk: p.publicJwk,
       p_firma: p.firma, p_ts: p.ts, p_lat: p.ubicacion?.lat ?? null, p_lng: p.ubicacion?.lng ?? null,
       p_precision: p.ubicacion?.precision ?? null,
+      ...(p.terminos ? { p_terminos: p.terminos } : {}),
     }),
 }

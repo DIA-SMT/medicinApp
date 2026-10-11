@@ -95,6 +95,8 @@ create table if not exists public.ajustes (
   radio_m  int not null default 150
 );
 insert into public.ajustes default values on conflict do nothing;
+-- El ensayo no exige la ubicación (se prueba desde cualquier lado), salvo que la cátedra lo pida para probarla en el aula.
+alter table public.ajustes add column if not exists ensayo_ubicacion boolean not null default false;
 
 create table if not exists public.intentos_fallidos (
   ip text not null,
@@ -255,6 +257,16 @@ end $$;
 create or replace function public._es_ensayo(sid text) returns boolean
 language sql stable set search_path = public as $$ select coalesce((select ensayo from sesiones where id = sid), false) $$;
 
+/** Ubicación en esta sesión: la de ajustes, salvo el ensayo, que sólo la exige si la cátedra lo pidió. */
+create or replace function public._modo_ubicacion(p_sesion text) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare aj ajustes;
+begin
+  select * into aj from ajustes limit 1;
+  if aj.geo_modo = 'exigir' and public._es_ensayo(p_sesion) and not aj.ensayo_ubicacion then return 'registrar'; end if;
+  return aj.geo_modo;
+end $$;
+
 /** Devuelve 'qr' | 'poster' si el pase es auténtico y vigente, o null. */
 create or replace function public._validar_pase(sid text, pase text) returns text
 language plpgsql stable security definer set search_path = public as $$
@@ -301,6 +313,7 @@ begin
     'pase', c || '.' || m || '.' || public._firma_pase(sec, p_sesion, c, m),
     'metodo', case m when 'q' then 'qr' else 'poster' end,
     'expiraEn', (c * 20 + 180) * 1000,
+    'ubicacion', public._modo_ubicacion(p_sesion),
     'ahora', public._ms(now())  -- el celular corrige su reloj con esto (la firma lleva un timestamp que se valida)
   );
 end $$;
@@ -356,9 +369,12 @@ language sql stable set search_path = public as $$
   )
 $$;
 
+-- p_terminos: versión de los términos y condiciones que el alumno aceptó en este celular (queda registrada).
+drop function if exists public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision);
 create or replace function public.marcar_presente(
   p_sesion text, p_pase text, p_dni text, p_huella text, p_public_jwk jsonb, p_firma text, p_ts bigint,
-  p_lat double precision default null, p_lng double precision default null, p_precision double precision default null
+  p_lat double precision default null, p_lng double precision default null, p_precision double precision default null,
+  p_terminos text default null
 ) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare
@@ -384,14 +400,14 @@ begin
 
   -- Ubicación (antes de tocar el vínculo, para que un rechazo no deje cambios a medias).
   -- En modo «exigir» hay que estar en el aula: se descuenta el margen de error del GPS (hasta 150 m).
-  -- El ensayo no la exige: se prueba desde cualquier lado.
+  -- El ensayo no la exige (se prueba desde cualquier lado), salvo que la cátedra lo pida.
   select * into aj from ajustes limit 1;
   if p_lat is not null and p_lng is not null then
     dist := 2 * 6371000 * asin(sqrt(
       power(sin(radians(aj.sede_lat - p_lat) / 2), 2) +
       cos(radians(p_lat)) * cos(radians(aj.sede_lat)) * power(sin(radians(aj.sede_lng - p_lng) / 2), 2)));
   end if;
-  if aj.geo_modo = 'exigir' and not public._es_ensayo(p_sesion)
+  if public._modo_ubicacion(p_sesion) = 'exigir'
      and (dist is null or dist - least(coalesce(p_precision, 0), 150) > aj.radio_m) then
     return public._fallo('FUERA_DE_RANGO', coalesce(round(dist)::text, ''), p_sesion);
   end if;
@@ -425,6 +441,12 @@ begin
   if t is null then
     nuevo := false;
     select marcado_en, distancia_m into t, dist from asistencias where sesion_id = p_sesion and libreta = a.libreta;
+  end if;
+
+  if p_terminos is not null and not a.ficticio then
+    insert into terminos_aceptados (libreta, version, sesion_id, huella)
+    values (a.libreta, left(p_terminos, 20), p_sesion, p_huella)
+    on conflict do nothing;
   end if;
 
   return jsonb_build_object(
@@ -648,7 +670,7 @@ end $$;
 -- (Postgres concede EXECUTE a PUBLIC por defecto: se revoca y se concede explícitamente abajo).
 revoke execute on function
   public._contador(), public._totp(text, bigint), public._hmac_hex(text, text), public._clave_poster(text, text),
-  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text), public._ya_cambio_automatico(text), public._exigir_admin(), public._otro_admin_activo(text),
+  public._firma_pase(text, text, bigint, text), public._validar_pase(text, text), public._fallo(text, text, text), public._es_ensayo(text), public._ya_cambio_automatico(text), public._modo_ubicacion(text), public._exigir_admin(), public._otro_admin_activo(text),
   public._bloqueado(), public._ip(), public._ms(timestamptz), public._abre(public.sesiones),
   public._cierra(public.sesiones), public._estado(public.sesiones), public._nombre_corto(text), public._progreso(text, text)
 from public, anon, authenticated;
@@ -659,7 +681,7 @@ revoke execute on function public.docente_secreto(text), public.docente_resumen(
 from public, anon;
 
 grant execute on function public.hora_servidor(), public.abrir_pase(text, text), public.identificar(text, text, text, text), public.mi_asistencia(text, text),
-  public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision)
+  public.marcar_presente(text, text, text, text, jsonb, text, bigint, double precision, double precision, double precision, text)
 to anon, authenticated;
 grant execute on function public.docente_secreto(text), public.docente_resumen(text), public.es_docente(),
   public.docente_terminar_ensayo(), public.docente_fallos(text, int),
@@ -687,7 +709,7 @@ alter table public.auditoria drop constraint if exists auditoria_accion_check;
 alter table public.auditoria add constraint auditoria_accion_check check (accion in (
   'presente_manual', 'presente_quitado', 'presente_cambiado', 'celular_liberado',
   'cuenta_habilitada', 'cuenta_confirmada', 'cuenta_quitada', 'rol_cambiado', 'solicitud_rechazada', 'cuenta_creada', 'clave_cambiada',
-  'clase_suspendida', 'clase_reanudada', 'celular_cambiado', 'cambio_celular_rechazado'));
+  'clase_suspendida', 'clase_reanudada', 'celular_cambiado', 'cambio_celular_rechazado', 'ajustes_cambiados', 'padron_actualizado'));
 alter table public.auditoria enable row level security;
 revoke all on public.auditoria from anon, authenticated;
 grant select on public.auditoria to authenticated;
@@ -1050,6 +1072,110 @@ revoke execute on function public.valorar_clase(text, text, text, int, text), pu
   public.docente_valoraciones(), public.docente_consultas(), public.docente_responder_consulta(bigint, text) from public, anon;
 grant execute on function public.valorar_clase(text, text, text, int, text), public.enviar_consulta(text, text, text), public.mis_consultas(text, text) to anon, authenticated;
 grant execute on function public.docente_valoraciones(), public.docente_consultas(), public.docente_responder_consulta(bigint, text) to authenticated;
+
+-- ── Términos aceptados, ajustes de ubicación, padrón y respaldo ──
+
+-- Primera vez que cada alumno dio presente aceptando cada versión de los términos y condiciones.
+create table if not exists public.terminos_aceptados (
+  libreta     text not null references public.alumnos(libreta) on delete cascade,
+  version     text not null,
+  aceptado_en timestamptz not null default now(),
+  sesion_id   text,
+  huella      text,
+  primary key (libreta, version)
+);
+alter table public.terminos_aceptados enable row level security;
+revoke all on public.terminos_aceptados from anon, authenticated;
+grant select on public.terminos_aceptados to authenticated;
+drop policy if exists terminos_docente on public.terminos_aceptados;
+create policy terminos_docente on public.terminos_aceptados for select using (public.es_docente());
+
+/**
+ * Ubicación obligatoria sí/no y ensayo con ubicación. Cualquier docente: en el aula tiene que poder
+ * desactivarla al instante si el GPS falla a muchos. Queda en la auditoría.
+ */
+create or replace function public.docente_ajustes(p_geo_modo text, p_ensayo_ubicacion boolean) returns void
+language plpgsql security definer set search_path = public, auth as $$
+declare previo ajustes; nuevo_modo text; nuevo_ensayo boolean;
+begin
+  if not public.es_docente() then raise exception 'NO_AUTORIZADO' using errcode = '42501'; end if;
+  if p_geo_modo is not null and p_geo_modo not in ('registrar', 'exigir') then raise exception 'MODO_INVALIDO'; end if;
+  select * into previo from ajustes limit 1;
+  nuevo_modo := coalesce(p_geo_modo, previo.geo_modo);
+  nuevo_ensayo := coalesce(p_ensayo_ubicacion, previo.ensayo_ubicacion);
+  if nuevo_modo = previo.geo_modo and nuevo_ensayo = previo.ensayo_ubicacion then return; end if;
+  update ajustes set geo_modo = nuevo_modo, ensayo_ubicacion = nuevo_ensayo where id;
+  insert into auditoria (accion, detalle) values ('ajustes_cambiados',
+    format('Ubicación %s; ensayo %s', case nuevo_modo when 'exigir' then 'obligatoria' else 'sólo se registra' end,
+           case when nuevo_ensayo then 'con ubicación' else 'sin ubicación' end));
+end $$;
+
+/**
+ * Agrega alumnos al padrón o corrige nombre y DNI de los que ya están (por libreta). Nunca borra a nadie.
+ * Sólo administradores. p_alumnos: [{libreta, nombre, dni}].
+ */
+create or replace function public.admin_agregar_alumnos(p_alumnos jsonb) returns jsonb
+language plpgsql security definer set search_path = public, auth as $$
+declare
+  yo text := public._exigir_admin(); x jsonb; lib text; nom text; doc text; previo alumnos;
+  agregados int := 0; actualizados int := 0; errores jsonb := '[]'::jsonb; sig int;
+begin
+  if jsonb_typeof(p_alumnos) <> 'array' or jsonb_array_length(p_alumnos) > 1000 then raise exception 'PADRON_INVALIDO'; end if;
+  select coalesce(max(orden), 0) + 1 into sig from alumnos where not ficticio;
+  for x in select * from jsonb_array_elements(p_alumnos) loop
+    lib := upper(regexp_replace(coalesce(x ->> 'libreta', ''), '[^A-Za-z0-9]', '', 'g'));
+    nom := left(regexp_replace(trim(coalesce(x ->> 'nombre', '')), '\s+', ' ', 'g'), 120);
+    doc := regexp_replace(coalesce(x ->> 'dni', ''), '\D', '', 'g');
+    if lib !~ '^[A-Z0-9]{3,20}$' or char_length(nom) < 3 or doc !~ '^\d{6,9}$' or lib like 'ENSAYO%' then
+      errores := errores || jsonb_build_object('libreta', lib, 'error', 'Datos incompletos o inválidos');
+      continue;
+    end if;
+    if exists (select 1 from alumnos where dni = doc and libreta <> lib) then
+      errores := errores || jsonb_build_object('libreta', lib, 'error', 'Ese DNI ya está en el padrón con otra libreta');
+      continue;
+    end if;
+    select * into previo from alumnos where libreta = lib;
+    if not found then
+      insert into alumnos (libreta, nombre, dni, orden) values (lib, nom, doc, sig);
+      sig := sig + 1;
+      agregados := agregados + 1;
+    elsif previo.nombre <> nom or previo.dni <> doc then
+      update alumnos set nombre = nom, dni = doc where libreta = lib;
+      actualizados := actualizados + 1;
+    end if;
+  end loop;
+  if agregados + actualizados > 0 then
+    insert into auditoria (accion, detalle) values ('padron_actualizado', format('%s agregados, %s corregidos', agregados, actualizados));
+  end if;
+  return jsonb_build_object('agregados', agregados, 'actualizados', actualizados, 'errores', errores);
+end $$;
+
+/**
+ * Respaldo completo para guardar fuera del sistema al cerrar el cursado. Sólo administradores.
+ * Sin secretos (los de las sesiones y las llaves de los celulares no salen) y con las valoraciones sin libreta.
+ */
+create or replace function public.admin_respaldo() returns jsonb
+language plpgsql security definer set search_path = public, auth as $$
+declare yo text := public._exigir_admin();
+begin
+  return jsonb_build_object(
+    'generado_en', now(),
+    'generado_por', yo,
+    'alumnos', (select coalesce(jsonb_agg(to_jsonb(a) order by a.orden nulls last, a.libreta), '[]') from alumnos a where not a.ficticio),
+    'sesiones', (select coalesce(jsonb_agg(to_jsonb(s) order by s.fecha), '[]') from sesiones s where not s.ensayo),
+    'asistencias', (select coalesce(jsonb_agg(jsonb_build_object('sesion_id', x.sesion_id, 'libreta', x.libreta, 'marcado_en', x.marcado_en,
+        'metodo', x.metodo, 'distancia_m', x.distancia_m, 'precision_m', x.precision_m, 'motivo', x.motivo, 'cargado_por', x.cargado_por)
+        order by x.sesion_id, x.marcado_en), '[]') from asistencias x where x.sesion_id <> 'ensayo'),
+    'dispositivos', (select coalesce(jsonb_agg(jsonb_build_object('libreta', d.libreta, 'huella', d.huella, 'creado_en', d.creado_en)), '[]') from dispositivos d),
+    'terminos_aceptados', (select coalesce(jsonb_agg(to_jsonb(t)), '[]') from terminos_aceptados t),
+    'valoraciones', (select coalesce(jsonb_agg(jsonb_build_object('sesion_id', v.sesion_id, 'puntaje', v.puntaje, 'comentario', v.comentario)), '[]') from valoraciones v),
+    'consultas', (select coalesce(jsonb_agg(to_jsonb(c) order by c.creado_en), '[]') from consultas c),
+    'auditoria', (select coalesce(jsonb_agg(to_jsonb(u) order by u.en), '[]') from auditoria u)
+  );
+end $$;
+
+revoke execute on function public.docente_ajustes(text, boolean), public.admin_agregar_alumnos(jsonb), public.admin_respaldo() from public, anon;
+grant execute on function public.docente_ajustes(text, boolean), public.admin_agregar_alumnos(jsonb), public.admin_respaldo() to authenticated;
 
 -- ── Clase de ensayo y DNIs de prueba (1.000.001 a 1.000.005) ──
 insert into public.sesiones (id, n, fecha, titulo, ensayo) values ('ensayo', 0, '2026-01-01', 'Clase de ensayo', true)
