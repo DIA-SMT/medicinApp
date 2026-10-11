@@ -4,7 +4,7 @@
 // Cada pedido se valida con el token de quien llama: si la base no dice que es administrador, no hace nada.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
-const ORIGENES = ['https://medicinapp.vercel.app', 'http://localhost:5173', 'http://localhost:5174']
+const ORIGENES = ['https://ginecoapp.com.ar', 'https://www.ginecoapp.com.ar', 'https://medicinapp.vercel.app', 'http://localhost:5173', 'http://localhost:5174']
 
 const cors = (origen: string | null) => ({
   'Access-Control-Allow-Origin': origen && ORIGENES.includes(origen) ? origen : ORIGENES[0],

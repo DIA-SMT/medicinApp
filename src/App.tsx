@@ -12,6 +12,7 @@ const Aula = lazy(() => import('./pages/Aula').then((m) => ({ default: m.Aula })
 const Cronograma = lazy(() => import('./pages/Cronograma').then((m) => ({ default: m.Cronograma })))
 const Inicio = lazy(() => import('./pages/Inicio').then((m) => ({ default: m.Inicio })))
 const Panel = lazy(() => import('./pages/Panel').then((m) => ({ default: m.Panel })))
+const Guia = lazy(() => import('./pages/Guia').then((m) => ({ default: m.Guia })))
 const Poster = lazy(() => import('./pages/Poster').then((m) => ({ default: m.Poster })))
 
 /** Título de la pestaña según la pantalla (también sirve para el historial y los marcadores). */
@@ -71,6 +72,7 @@ export function App() {
             <Route element={<ConNav />}>
               <Route path="/" element={<Inicio />} />
               <Route path="/cronograma" element={<Cronograma />} />
+              <Route path="/guia" element={<Guia />} />
               <Route path="/panel" element={<Acceso><Panel /></Acceso>} />
             </Route>
             <Route path="/aula/:id?" element={<Acceso><Aula /></Acceso>} />

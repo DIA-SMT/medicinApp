@@ -23,7 +23,8 @@ export const lejosDeSede = (distanciaM: number | null | undefined, precisionM: n
   distanciaM != null && distanciaM > radioM + (precisionM ?? 0)
 
 /** Nunca rechaza: si el permiso se niega o el GPS no responde, devuelve null. */
-export function obtenerUbicacion(timeoutMs = 8000): Promise<Ubicacion | null> {
+/** `maxAgeMs`: cuánto puede tener de vieja una posición guardada (0 = pedir una nueva, para reintentar). */
+export function obtenerUbicacion(timeoutMs = 8000, maxAgeMs = 120_000): Promise<Ubicacion | null> {
   if (!('geolocation' in navigator)) return Promise.resolve(null)
   return new Promise((res) => {
     const t = setTimeout(() => res(null), timeoutMs + 500)
@@ -36,7 +37,7 @@ export function obtenerUbicacion(timeoutMs = 8000): Promise<Ubicacion | null> {
         clearTimeout(t)
         res(null)
       },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 120_000 },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: maxAgeMs },
     )
   })
 }

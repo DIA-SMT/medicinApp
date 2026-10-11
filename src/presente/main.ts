@@ -3,7 +3,7 @@
 import './presente.css'
 import { publico } from '../data/publico'
 import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
-import { CATEDRA, GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD } from '../lib/config'
+import { CATEDRA, GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD, type ModoGeo } from '../lib/config'
 import { TERMINOS, TERMINOS_RESUMEN, TERMINOS_TITULO, TERMINOS_VERSION } from '../lib/terminos'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
 import { firmar, obtenerDispositivo, type Dispositivo } from '../lib/device'
@@ -124,6 +124,7 @@ const enlaceElena = (pregunta?: string) => `/#/?elena=1${pregunta ? `&q=${encode
 
 // Términos y condiciones: se aceptan antes del primer presente de cada celular (y cuando cambia la versión).
 const CLAVE_TERMINOS = 'ciclo:terminos'
+const obtenerUbicacionNueva = () => obtenerUbicacion(12_000, 0)
 const terminosAceptados = () => leer(CLAVE_TERMINOS) === TERMINOS_VERSION
 const textoTerminos = () =>
   TERMINOS.map((t, i) => `<p class="mt-3"><b class="text-tinta">${i + 1}. ${esc(t.titulo)}.</b> ${esc(t.texto)}</p>`).join('')
@@ -784,7 +785,7 @@ async function registrar(sesion: Sesion, codigo: string) {
   const clavePase = `ciclo:pase:${sesion.id}`
   // `desfase`: servidor − celular. La firma lleva un timestamp que el servidor exige dentro de ±5 min:
   // con la hora del servidor, un celular con la hora mal configurada igual puede dar presente.
-  let pase: { pase: string; vence: number; desfase?: number } | null = null
+  let pase: { pase: string; vence: number; desfase?: number; ubicacion?: ModoGeo } | null = null
   try {
     const p = JSON.parse(sessionStorage.getItem(clavePase) ?? 'null')
     if (p && p.vence > Date.now()) pase = p
@@ -794,7 +795,7 @@ async function registrar(sesion: Sesion, codigo: string) {
   if (!pase) {
     const r = await api.abrirPase(sesion.id, codigo)
     if (!r.ok) return mostrarError(sesion, r.error, r.detalle, () => registrar(sesion, codigo))
-    pase = { pase: r.pase, vence: Date.now() + (PASE_TTL_S - 10) * 1000, desfase: r.ahora ? r.ahora - Date.now() : 0 }
+    pase = { pase: r.pase, vence: Date.now() + (PASE_TTL_S - 10) * 1000, desfase: r.ahora ? r.ahora - Date.now() : 0, ubicacion: r.ubicacion }
     try {
       sessionStorage.setItem(clavePase, JSON.stringify(pase))
     } catch {
@@ -818,15 +819,20 @@ async function registrar(sesion: Sesion, codigo: string) {
     mostrarError(sesion, 'PASE_VENCIDO')
   }
 
+  // Lo que dice el servidor para esta clase (la cátedra puede cambiarlo desde el panel); si no lo dice, la configuración.
+  const modoGeo = (): ModoGeo => pase?.ubicacion ?? (sesion.ensayo && GEO_MODO === 'exigir' ? 'registrar' : GEO_MODO)
   const marcar = async (dni: string) => {
-    cargando(sesion, GEO_MODO === 'exigir' && !sesion.ensayo ? 'Verificando que estés en el aula' : 'Registrando presente')
+    const exigida = modoGeo() === 'exigir'
+    cargando(sesion, exigida ? 'Verificando que estés en el aula' : 'Registrando presente')
     const ts = Date.now() + (pase!.desfase ?? 0)
     const firma = await firmar(dispositivo, `${sesion.id}|${pase!.pase}|${dni}|${ts}`)
     // Sólo para registrar a cuántos metros del aula se dio el presente; si no hay permiso o GPS, sigue igual.
     // En modo «exigir» la ubicación es obligatoria: se le da más tiempo al GPS (adentro de un edificio tarda).
-    const ubicacion = GEO_MODO === 'off' ? null : await (ubicacionPedida ??= obtenerUbicacion(GEO_MODO === 'exigir' ? 10_000 : 5000))
-    const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion })
+    const ubicacion = modoGeo() === 'off' ? null : await (ubicacionPedida ??= obtenerUbicacion(exigida ? 10_000 : 5000, exigida ? 30_000 : 120_000))
+    const r = await api.marcar({ sesionId: sesion.id, pase: pase!.pase, dni, huella: dispositivo.huella, publicJwk: dispositivo.publicJwk, firma, ts, ubicacion, terminos: terminosAceptados() ? TERMINOS_VERSION : null })
     if (!r.ok) {
+      // Al reintentar se pide una ubicación nueva (no la que falló ni una guardada de hace un rato).
+      if (r.error === 'FUERA_DE_RANGO') ubicacionPedida = obtenerUbicacionNueva()
       if (r.error === 'DISPOSITIVO_AJENO') recordarCambio(dni)
       return mostrarError(sesion, r.error, r.detalle, () => marcar(dni))
     }
@@ -895,7 +901,7 @@ async function registrar(sesion: Sesion, codigo: string) {
         <button id="no" class="mt-3 w-full text-center text-sm text-slate-400 underline-offset-4 hover:underline">No soy yo · cambiar DNI</button>
         ${barraPase(pase!.vence)}
         <p class="mt-4 flex items-start gap-2 text-xs text-slate-400">${svg(I.huella, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} Este celular queda vinculado a tu libreta: la próxima vez el presente es automático.</p>
-        ${GEO_MODO === 'off' ? '' : `<p class="mt-2 flex items-start gap-2 text-xs text-slate-400">${svg(I.ubicacion, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} ${GEO_MODO === 'exigir' ? '<b class="text-slate-500">Te va a pedir la ubicación: aceptá, es obligatoria para dar presente.</b> Sólo se guarda a cuántos metros del aula estás, no dónde.' : 'Si te pide la ubicación, aceptá: sólo se guarda a cuántos metros del aula estás, no dónde. Si no, el presente se da igual.'}</p>`}
+        ${modoGeo() === 'off' ? '' : `<p class="mt-2 flex items-start gap-2 text-xs text-slate-400">${svg(I.ubicacion, 'mt-0.5 h-4 w-4 shrink-0 text-cian')} ${modoGeo() === 'exigir' ? '<b class="text-slate-500">Te va a pedir la ubicación: aceptá, es obligatoria para dar presente.</b> Sólo se guarda a cuántos metros del aula estás, no dónde.' : 'Si te pide la ubicación, aceptá: sólo se guarda a cuántos metros del aula estás, no dónde. Si no, el presente se da igual.'}</p>`}
       </div>`,
     )
     alVencerPase = vencido

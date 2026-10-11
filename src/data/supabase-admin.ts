@@ -194,6 +194,24 @@ export function crearSupabaseAdmin(): AdminApi {
       return Object.fromEntries((data ?? []).map((f) => [f.id as string, f.conteo as number]))
     },
 
+    async ajustes() {
+      const { data, error } = await sb.from('ajustes').select('geo_modo, ensayo_ubicacion').single()
+      if (error) throw new Error(error.message)
+      return { geoModo: data.geo_modo, ensayoUbicacion: !!data.ensayo_ubicacion }
+    },
+
+    guardarAjustes: (geoModo, ensayoUbicacion) => rpc<void>('docente_ajustes', { p_geo_modo: geoModo, p_ensayo_ubicacion: ensayoUbicacion }),
+
+    async terminosAceptados() {
+      const { data, error } = await sb.from('terminos_aceptados').select('libreta, version, aceptado_en')
+      if (error) throw new Error(error.message)
+      return (data ?? []).map((f) => ({ libreta: f.libreta as string, version: f.version as string, en: Date.parse(f.aceptado_en) }))
+    },
+
+    agregarAlumnos: (lista) => rpc('admin_agregar_alumnos', { p_alumnos: lista }),
+
+    respaldo: () => rpc('admin_respaldo', {}),
+
     async guardarConteo(sesionId, n) {
       const { error } = await sb.from('sesiones').update({ conteo: n }).eq('id', sesionId)
       if (error) throw new Error(error.message)

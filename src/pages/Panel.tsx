@@ -1,4 +1,4 @@
-import { Activity, CalendarCheck, CalendarOff, MapPin, MessageSquare, Stethoscope, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
+import { Activity, Archive, BookOpen, CalendarCheck, CalendarOff, Copy, MapPin, MapPinOff, MessageSquare, Stethoscope, CircleCheck, FlaskConical, KeyRound, ShieldCheck, TriangleAlert, UserCheck, UserX, ClipboardList, CloudDownload, Database, Download, FileText, FingerprintPattern, History, ListChecks, LogOut, Printer, Projector, RotateCcw, Search, Smartphone, Unlink, UserPlus, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAvisos } from '../components/Avisos'
@@ -6,9 +6,10 @@ import { claveSugerida } from '../lib/clave'
 import { copiarTexto } from '../lib/copiar'
 import { Kpi, PildoraEstado } from '../components/ui'
 import { useAdmin } from '../data/admin'
-import type { AccionAuditoria, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, ResumenValoracion, Rol, Solicitud } from '../data/types'
+import type { AccionAuditoria, AjustesUbicacion, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, PedidoCelular, Registro, ResumenValoracion, Rol, Solicitud } from '../data/types'
 import { CATEDRA, MOTIVOS_MANUALES, SEDE, UMBRAL_REGULARIDAD } from '../lib/config'
 import { lejosDeSede } from '../lib/geo'
+import { TERMINOS_VERSION } from '../lib/terminos'
 import { descargarCsv } from '../lib/csv'
 import { AREAS, CRONOGRAMA, docentesSesion, sesionPorId, type Sesion } from '../lib/cronograma'
 import { huellaCorta } from '../lib/device'
@@ -173,6 +174,7 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
               <CalendarOff className="h-3.5 w-3.5" /> Hoy no hay clase: la del {fechaCorta(suspendidaHoy.fecha)} está suspendida ({ventanas?.[suspendidaHoy.id]?.motivoSuspension}).
             </p>
           )}
+          <AjustesUbicacionHoy fueraDeRango={esHoy ? (fallos.FUERA_DE_RANGO ?? 0) : 0} />
           {avisos.length > 0 && (
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ambar">
               <TriangleAlert className="h-3.5 w-3.5" /> Avisos de los alumnos hoy:
@@ -245,6 +247,17 @@ export function Panel() {
   const [alumnos, setAlumnos] = useState<Alumno[] | null>(null)
   const [registros, setRegistros] = useState<Registro[]>([])
   const [dispositivos, setDispositivos] = useState<DispositivoVinculado[]>([])
+  // Alumnos que ya usaron su único cambio automático de celular (el próximo lo aprueba la cátedra).
+  const [usaronCambio, setUsaronCambio] = useState<Set<string>>(new Set())
+  const [soloCambio, setSoloCambio] = useState(false)
+  // Aceptación de los términos vigentes (se registra al dar presente).
+  const [terminos, setTerminos] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    api
+      .terminosAceptados()
+      .then((t) => setTerminos(new Map(t.filter((x) => x.version === TERMINOS_VERSION).map((x) => [x.libreta, x.en]))))
+      .catch(() => {})
+  }, [api, registros.length])
   const [error, setError] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState<Condicion | 'Todos'>('Todos')
@@ -267,12 +280,14 @@ export function Panel() {
   useEffect(revisarCuentas, [revisarCuentas])
   const [, setExportes] = useState(0)
   const [generando, setGenerando] = useState(false)
+  const [respaldando, setRespaldando] = useState(false)
 
   const cargar = useCallback(() => {
     Promise.all([api.alumnos(), api.registros(), api.dispositivos(), api.cambiosAutomaticos().catch(() => [])])
       .then(([a, r, d, c]) => {
         // Un cambio automático pasa justo al dar presente: se lo asocia a la clase de ese día.
         const cambios = new Set(c.map((x) => `${x.libreta}|${hoyIso(x.en)}`))
+        setUsaronCambio(new Set(c.map((x) => x.libreta)))
         setAlumnos(a)
         setRegistros(r.map((x) => (cambios.has(`${x.libreta}|${sesionPorId(x.sesionId)?.fecha ?? x.sesionId}`) ? { ...x, cambioCelular: true } : x)))
         setDispositivos(d)
@@ -407,10 +422,28 @@ export function Panel() {
   }
 
   /** Los mismos datos en CSV, para abrir en Excel o guardar como copia de los datos. */
+  const descargarRespaldo = async () => {
+    setRespaldando(true)
+    try {
+      const datos = await api.respaldo()
+      const url = URL.createObjectURL(new Blob([JSON.stringify(datos, null, 1)], { type: 'application/json' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `respaldo-ginecoapp-${hoy}.json`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      mostrar('Respaldo descargado. Guardalo en un lugar seguro: tiene DNIs y nombres de los alumnos.')
+    } catch (e) {
+      mostrar(`No se pudo generar el respaldo: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setRespaldando(false)
+    }
+  }
+
   const exportarCsv = () => {
     descargarCsv(`planilla-regularidad-ginecologia-${hoy}.csv`, [
-      ['Folio', 'Orden', 'Libreta', 'Apellido y Nombre', 'Documento', ...computables.map((s) => `Clase ${s.n} (${fechaCorta(s.fecha)})`), 'Presentes', 'Clases', '%', 'Condición'],
-      ...filas.map((f) => [f.a.folio, f.a.orden, f.a.libreta, f.a.nombre, f.a.dni, ...computables.map((s) => (!f.marcas.has(s.id) ? 'A' : f.marcas.get(s.id)!.metodo === 'manual' ? 'PM' : 'P')), f.presentes, computables.length, f.porcentaje, f.condicion]),
+      ['Folio', 'Orden', 'Libreta', 'Apellido y Nombre', 'Documento', ...computables.map((s) => `Clase ${s.n} (${fechaCorta(s.fecha)})`), 'Presentes', 'Clases', '%', 'Condición', `Términos ${TERMINOS_VERSION} aceptados`],
+      ...filas.map((f) => [f.a.folio, f.a.orden, f.a.libreta, f.a.nombre, f.a.dni, ...computables.map((s) => (!f.marcas.has(s.id) ? 'A' : f.marcas.get(s.id)!.metodo === 'manual' ? 'PM' : 'P')), f.presentes, computables.length, f.porcentaje, f.condicion, terminos.has(f.a.libreta) ? horaArt(terminos.get(f.a.libreta)!) + ' ' + hoyIso(terminos.get(f.a.libreta)!) : '']),
     ])
     marcarExportadas(computables.map((s) => s.id))
     setExportes((x) => x + 1)
@@ -442,6 +475,14 @@ export function Panel() {
           <button className="btn btn-secundario !px-3" onClick={exportarCsv} title="Los mismos datos en CSV, para Excel o como copia de los datos">
             <Download className="h-4 w-4" /> CSV
           </button>
+          <Link to="/guia" className="btn btn-fantasma" title="Guía de una página para los docentes (para imprimir o mandar por WhatsApp)">
+            <BookOpen className="h-4 w-4 text-cian" /> Guía
+          </Link>
+          {esAdmin && (
+            <button className="btn btn-fantasma" onClick={descargarRespaldo} disabled={respaldando} title="Todos los datos del cursado en un archivo, para guardarlo fuera del sistema">
+              <Archive className="h-4 w-4" /> {respaldando ? 'Preparando…' : 'Respaldo'}
+            </button>
+          )}
           <button className="btn btn-fantasma" onClick={() => setVerMiClave((x) => !x)} title="Cambiar tu contraseña">
             <KeyRound className="h-4 w-4" /> Mi contraseña
           </button>
@@ -456,6 +497,7 @@ export function Panel() {
       {verMiClave && <MiClave avisar={mostrar} onCerrar={() => setVerMiClave(false)} />}
 
       <ClaseDeHoy registros={registros} total={alumnos.length} onManual={(s) => ir({ tab: 'manual', s })} onVer={(s) => ir({ tab: 'clase', s })} />
+      <ResumenUltimaClase registros={registros} total={alumnos.length} computables={computables} onVer={(s) => ir({ tab: 'clase', s })} />
 
 
       {esAdmin && pendientes > 0 && tab !== 'cuentas' && (
@@ -549,7 +591,7 @@ export function Panel() {
             ['dispositivos', `Dispositivos (${dispositivos.length})${pedidosCel.length ? ` · ${pedidosCel.length} pedido${pedidosCel.length === 1 ? '' : 's'}` : ''}`, Smartphone],
             ['consultas', `Consultas${sinResponder ? ` (${sinResponder})` : ''}`, MessageSquare],
             ['historial', 'Historial', History],
-            ...(esAdmin ? ([['cuentas', `Cuentas${pendientes ? ` (${pendientes} pedido${pendientes === 1 ? '' : 's'})` : ''}`, ShieldCheck]] as const) : []),
+            ...(esAdmin ? ([['cuentas', `Cuentas y padrón${pendientes ? ` (${pendientes} pedido${pendientes === 1 ? '' : 's'})` : ''}`, ShieldCheck]] as const) : []),
           ] as const
         ).map(([k, t, I]) => (
           <button key={k} onClick={() => ir({ tab: k })} className={`btn ${tab === k ? 'btn-primario' : 'btn-secundario'} !py-2`}>
@@ -672,6 +714,35 @@ export function Panel() {
             asistencia» → «Cambiar de celular»); si lo perdió, lo pide y aparece arriba para aprobar. También podés liberar el vínculo: el próximo registro crea uno
             nuevo.
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+              Términos vigentes aceptados: <b className="tabular-nums">{terminos.size}</b> de {alumnos.length} (se registran al dar presente)
+            </span>
+            {usaronCambio.size > 0 && (
+              <>
+                <button
+                  onClick={() => setSoloCambio((x) => !x)}
+                  className={`rounded-full border px-2.5 py-1 font-medium transition ${soloCambio ? 'border-ambar bg-ambar text-white' : 'border-ambar/40 bg-ambar-suave text-ambar'}`}
+                  title="Ya cambiaron de celular o navegador una vez solos: el próximo cambio lo aprueba la cátedra"
+                >
+                  Ya usaron su cambio automático ({usaronCambio.size})
+                </button>
+                <button
+                  className="inline-flex items-center gap-1 text-slate-500 underline-offset-4 hover:text-tinta hover:underline"
+                  onClick={() =>
+                    copiarTexto(
+                      `Ya cambiaron de celular o navegador una vez en Ginecoapp. Para que no les pida aprobación, abran el QR siempre con la misma app (la cámara del celular):\n${alumnos
+                        .filter((a) => usaronCambio.has(a.libreta))
+                        .map((a) => `• ${a.nombre}`)
+                        .join('\n')}`,
+                    ).then((ok) => mostrar(ok ? 'Lista copiada: pegala en el grupo de WhatsApp o mandala por privado.' : 'No se pudo copiar.'))
+                  }
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copiar aviso con la lista
+                </button>
+              </>
+            )}
+          </div>
           {dispositivos.length > 0 && (
             <div className="relative mt-4">
               <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -682,6 +753,7 @@ export function Panel() {
             {dispositivos.length === 0 && <p className="py-6 text-center text-sm text-slate-500">Ningún dispositivo vinculado todavía.</p>}
             {dispositivos
               .map((d) => ({ d, a: alumnos.find((x) => x.libreta === d.libreta) }))
+              .filter(({ d }) => !soloCambio || usaronCambio.has(d.libreta))
               .filter(({ d, a }) => !busquedaDisp.trim() || sinTildes(`${a?.nombre ?? ''} ${d.libreta} ${a?.dni ?? ''}`).includes(sinTildes(busquedaDisp.trim())))
               .sort((x, y) => (x.a?.nombre ?? '').localeCompare(y.a?.nombre ?? ''))
               .map(({ d, a }) => (
@@ -691,6 +763,7 @@ export function Panel() {
                     <div className="font-mono text-[0.65rem] text-slate-400">
                       {d.libreta} · huella {huellaCorta(d.huella, 6)} · desde {fechaCorta(new Date(d.creadoEn).toISOString().slice(0, 10))}
                     </div>
+                    {usaronCambio.has(d.libreta) && <div className="mt-0.5 text-[0.7rem] font-medium text-ambar">Ya usó su cambio automático: el próximo lo aprueba la cátedra</div>}
                   </div>
                   <button
                     className="btn btn-secundario !py-1.5 !text-xs"
@@ -712,6 +785,7 @@ export function Panel() {
       {tab === 'consultas' && <Buzon consultas={consultas} avisar={mostrar} alCambiar={cargarConsultas} />}
       {tab === 'historial' && <Historial alumnos={alumnos} cambios={registros.length + dispositivos.length} />}
       {tab === 'cuentas' && esAdmin && <Cuentas avisar={mostrar} alCambiar={revisarCuentas} />}
+      {tab === 'cuentas' && esAdmin && <Padron alumnos={alumnos} avisar={mostrar} alCambiar={cargar} />}
       {aviso}
     </main>
   )
@@ -1058,6 +1132,8 @@ const ACCIONES: Record<AccionAuditoria, { texto: string; color: string }> = {
   clase_reanudada: { texto: 'Clase reanudada', color: '#0e9f68' },
   celular_cambiado: { texto: 'Celular cambiado', color: '#b04aa6' },
   cambio_celular_rechazado: { texto: 'Cambio de celular rechazado', color: '#e0246f' },
+  ajustes_cambiados: { texto: 'Ubicación', color: '#0a8fb0' },
+  padron_actualizado: { texto: 'Padrón actualizado', color: '#0e9f68' },
 }
 
 /** Quién cambió qué y cuándo. Lo escribe la base (trigger), así que no depende de que la app lo registre. */
@@ -1352,6 +1428,184 @@ function sospecha(r: Registro): string | null {
     r.cambioCelular && 'cambió de celular',
   ].filter(Boolean)
   return motivos.length ? motivos.join(' · ') : null
+}
+
+/**
+ * Ubicación obligatoria sí/no, a mano de cualquier docente en el aula: si el GPS falla a muchos, se desactiva al
+ * instante (el presente se da igual y la distancia se sigue registrando). También el ensayo con ubicación.
+ */
+function AjustesUbicacionHoy({ fueraDeRango }: { fueraDeRango: number }) {
+  const api = useAdmin()
+  const [aj, setAj] = useState<AjustesUbicacion | null>(null)
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => {
+    api.ajustes().then(setAj).catch(() => {})
+  }, [api])
+  if (!aj || aj.geoModo === 'off') return null
+  const guardar = async (geo: 'exigir' | 'registrar' | null, ensayo: boolean | null) => {
+    setGuardando(true)
+    try {
+      await api.guardarAjustes(geo, ensayo)
+      setAj(await api.ajustes())
+    } catch (e) {
+      alert(`No se pudo cambiar: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setGuardando(false)
+    }
+  }
+  const exigida = aj.geoModo === 'exigir'
+  const muchos = exigida && fueraDeRango >= 5
+  return (
+    <div className={`mt-3 rounded-xl border px-3 py-2 text-xs ${muchos ? 'border-ambar/50 bg-ambar-suave text-ambar' : 'border-linea bg-slate-50 text-slate-600'}`}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {exigida ? <MapPin className="h-3.5 w-3.5 shrink-0 text-cian" /> : <MapPinOff className="h-3.5 w-3.5 shrink-0 text-ambar" />}
+        <span className="font-medium">{exigida ? 'Ubicación obligatoria para dar presente.' : 'Ubicación desactivada: sólo se registra la distancia (no frena el presente).'}</span>
+        <button
+          disabled={guardando}
+          className="font-semibold text-tinta underline underline-offset-4"
+          onClick={() =>
+            exigida
+              ? confirm('¿Desactivar la ubicación obligatoria? Los alumnos van a poder dar presente aunque el GPS falle; la distancia se sigue registrando y los que estén lejos aparecen como sospechosos.') && guardar('registrar', null)
+              : guardar('exigir', null)
+          }
+        >
+          {exigida ? 'Desactivar' : 'Volver a exigirla'}
+        </button>
+        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-slate-500" title="Para probar en el aula que el GPS funciona, con los DNIs de prueba">
+          <input type="checkbox" className="accent-rosa" checked={aj.ensayoUbicacion} disabled={guardando} onChange={(e) => guardar(null, e.target.checked)} />
+          Exigirla también en el ensayo
+        </label>
+      </div>
+      {muchos && (
+        <p className="mt-1">
+          {fueraDeRango} intentos hoy no pudieron verificar la ubicación. Si los alumnos están en el aula y el GPS no responde, desactivala: nadie se queda sin presente y los que estén lejos igual quedan marcados.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** Resumen de la última clase dictada: presentes, conteo, sospechosos, cambios de celular y valoración. */
+function ResumenUltimaClase({ registros, total, computables, onVer }: { registros: Registro[]; total: number; computables: Sesion[]; onVer: (id: string) => void }) {
+  const api = useAdmin()
+  const now = useNow(60_000)
+  const { ventanas } = useVentanas()
+  // La última clase con registro cuyo horario ya cerró.
+  const s = [...computables].reverse().find((x) => infoVentana(x.fecha, ventanas?.[x.id] ?? ventanaDefault(), now).estado === 'cerrada')
+  const [conteo, setConteo] = useState<number | null>(null)
+  const [val, setVal] = useState<ResumenValoracion | null>(null)
+  useEffect(() => {
+    if (!s) return
+    api.conteos().then((c) => setConteo(c[s.id] ?? null)).catch(() => {})
+    api.valoraciones().then((v) => setVal(v[s.id] ?? null)).catch(() => {})
+  }, [api, s?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (!s) return null
+  const regs = registros.filter((r) => r.sesionId === s.id)
+  const sospechosos = regs.filter((r) => sospecha(r)).length
+  const cambios = regs.filter((r) => r.cambioCelular).length
+  const manuales = regs.filter((r) => r.metodo === 'manual').length
+  const dato = (titulo: string, valor: string, nota?: string, alerta?: boolean) => (
+    <div className="min-w-[7.5rem]">
+      <div className="etiqueta">{titulo}</div>
+      <div className={`font-display text-xl font-semibold tabular-nums ${alerta ? 'text-ambar' : 'text-tinta'}`}>{valor}</div>
+      {nota && <div className="text-[0.7rem] text-slate-400">{nota}</div>}
+    </div>
+  )
+  return (
+    <div className="tarjeta mt-4 flex flex-wrap items-center gap-x-8 gap-y-4 p-5 sm:px-6">
+      <div className="w-full sm:w-auto">
+        <div className="etiqueta">Última clase · Nº {String(s.n).padStart(2, '0')} · {diaSemana(s.fecha)} {fechaCorta(s.fecha)}</div>
+        <div className="mt-0.5 max-w-xs truncate text-sm text-slate-600">{s.temas.map((t) => t.titulo).join(' + ')}</div>
+      </div>
+      {dato('Presentes', `${regs.length} / ${total}`, `${pct(regs.length, total)}%${manuales ? ` · ${manuales} manuales` : ''}`)}
+      {dato('Conteo del aula', conteo === null ? '—' : String(conteo), conteo === null ? 'no se cargó' : regs.length > conteo ? `${regs.length - conteo} presentes de más` : 'coincide o sobra', conteo !== null && regs.length > conteo)}
+      {dato('Sospechosos', String(sospechosos), cambios ? `${cambios} con cambio de celular` : undefined, sospechosos > 0)}
+      {dato('Valoración', val ? `${val.promedio.toFixed(1).replace('.', ',')} / 5` : '—', val ? `${val.cantidad} ${val.cantidad === 1 ? 'voto' : 'votos'}` : 'todavía sin votos')}
+      <button className="btn btn-secundario !py-2 sm:ml-auto" onClick={() => onVer(s.id)}>
+        <ListChecks className="h-4 w-4 text-cian" /> Ver la lista
+      </button>
+    </div>
+  )
+}
+
+/** Alta de alumnos en el padrón (o corrección de nombre y DNI) pegando las filas de la planilla. Nunca borra. */
+function Padron({ alumnos, avisar, alCambiar }: { alumnos: Alumno[]; avisar: Avisar; alCambiar: () => void }) {
+  const api = useAdmin()
+  const [texto, setTexto] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [resultado, setResultado] = useState<{ agregados: number; actualizados: number; errores: { libreta: string; error: string }[] } | null>(null)
+  // Una fila por alumno: libreta, apellido y nombre, DNI (separados por tabulación, punto y coma o coma antes del DNI).
+  const filas = texto
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const partes = l.includes('\t') ? l.split('\t') : l.split(';')
+      if (partes.length >= 3) return { libreta: partes[0].trim(), nombre: partes.slice(1, -1).join(' ').trim(), dni: partes[partes.length - 1].trim() }
+      const m = l.match(/^(\S+)\s+(.+?)[\s,;]+([\d.]{6,12})$/)
+      return m ? { libreta: m[1], nombre: m[2], dni: m[3] } : { libreta: '', nombre: l, dni: '' }
+    })
+  const porLibreta = new Map(alumnos.map((a) => [a.libreta, a]))
+  const nuevos = filas.filter((f) => f.libreta && !porLibreta.has(f.libreta.toUpperCase().replace(/[^A-Z0-9]/g, ''))).length
+  const malas = filas.filter((f) => !f.libreta || !/\d{6,}/.test(f.dni.replace(/\D/g, ''))).length
+
+  const enviar = async () => {
+    setEnviando(true)
+    try {
+      const r = await api.agregarAlumnos(filas)
+      setResultado(r)
+      if (r.agregados + r.actualizados > 0) {
+        alCambiar()
+        avisar(`Padrón actualizado: ${r.agregados} agregados, ${r.actualizados} corregidos.`)
+      }
+      if (!r.errores.length) setTexto('')
+    } catch (e) {
+      avisar(`No se pudo actualizar el padrón: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="tarjeta hud mt-4 p-5">
+      <h3 className="flex items-center gap-2 font-semibold text-tinta">
+        <Users className="h-4 w-4 text-cian" /> Padrón de alumnos <span className="font-normal text-slate-400">({alumnos.length})</span>
+      </h3>
+      <p className="mt-1 text-sm text-slate-600">
+        Para sumar alumnos que no estaban (o corregir un nombre o DNI), pegá las filas de la planilla: <b>libreta, apellido y nombre, DNI</b>, una por renglón (podés copiarlas
+        directo de Excel). Nunca se borra a nadie; para un cursado nuevo, pegá el padrón completo.
+      </p>
+      <textarea
+        className="campo mt-3 h-32 font-mono text-xs"
+        placeholder={'MD1234567\tApellido, Nombre\t40123456'}
+        value={texto}
+        onChange={(e) => {
+          setTexto(e.target.value)
+          setResultado(null)
+        }}
+      />
+      {filas.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-slate-600">
+            {filas.length} {filas.length === 1 ? 'fila' : 'filas'} · {nuevos} {nuevos === 1 ? 'alumno nuevo' : 'alumnos nuevos'}
+            {malas > 0 && <span className="text-ambar"> · {malas} sin libreta o DNI</span>}
+          </span>
+          <button className="btn btn-primario !py-2" onClick={enviar} disabled={enviando}>
+            {enviando ? 'Guardando…' : 'Guardar en el padrón'}
+          </button>
+        </div>
+      )}
+      {resultado && resultado.errores.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-ambar">
+          {resultado.errores.map((e, i) => (
+            <li key={i}>
+              <span className="font-mono">{e.libreta || '(sin libreta)'}</span>: {e.error}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 /** Conteo de personas en el aula, hecho por la cátedra a mano, comparado con los presentes registrados. */

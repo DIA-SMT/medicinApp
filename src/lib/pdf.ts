@@ -207,7 +207,7 @@ export async function planillaPdf({ filas, computables, umbral = UMBRAL_REGULARI
     y = 50
   }
   doc.setDrawColor(...C.grisClaro).setLineWidth(0.3)
-  ;['Firma del profesor a cargo', 'Aclaración', 'Fecha'].forEach((t, i) => {
+  ;['Firma', CATEDRA.titularCompleta, 'Fecha'].forEach((t, i) => {
     const x = 20 + i * 90
     doc.line(x, y, x + 70, y)
     doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...C.gris).text(t, x + 35, y + 4, { align: 'center' })

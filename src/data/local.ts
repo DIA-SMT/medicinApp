@@ -7,7 +7,7 @@ import { comprobante, libretaOculta, nombreCorto, normalizarNombre } from '../li
 import { haversine } from '../lib/geo'
 import { hoyIso, infoVentana, instante, ventanaDefault, type Ventana } from '../lib/time'
 import { clavePoster, contador, firmaPase, nuevoSecreto, totp, cryptoDisponible } from '../lib/totp'
-import type { AdminApi, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, PedidoCelular, Progreso, PublicoApi, Registro, Solicitud } from './types'
+import type { AdminApi, Alumno, ConsultaBuzon, Cuenta, DispositivoVinculado, EventoAuditoria, Fallo, Metodo, PedidoCelular, Progreso, PublicoApi, Registro, Solicitud, AjustesUbicacion } from './types'
 
 /** Igual que public._progreso en SQL y que la planilla del panel. */
 function progresoDe(regs: Registro[], libreta: string, sesionId: string): Progreso {
@@ -31,6 +31,8 @@ function auditar(e: Omit<EventoAuditoria, 'en' | 'por'>) {
 const K = {
   auditoria: 'ciclo:v1:auditoria',
   conteos: 'ciclo:v1:conteos',
+  ajustes: 'ciclo:v1:ajustes',
+  terminos: 'ciclo:v1:terminos-aceptados',
   cuentas: 'ciclo:v1:cuentas',
   solicitudes: 'ciclo:v1:solicitudes',
   secretos: 'ciclo:v1:secretos',
@@ -112,6 +114,13 @@ async function validarPase(sesionId: string, pase: string): Promise<Metodo | Fal
 
 const limpiarDni = (d: string) => d.replace(/\D/g, '')
 
+/** Igual que public._modo_ubicacion en SQL. */
+const ajustesLocal = () => leer<AjustesUbicacion>(K.ajustes, { geoModo: GEO_MODO, ensayoUbicacion: false })
+const modoUbicacion = (sesionId: string) => {
+  const aj = ajustesLocal()
+  return aj.geoModo === 'exigir' && sesionId === 'ensayo' && !aj.ensayoUbicacion ? 'registrar' : aj.geoModo
+}
+
 /** Igual que public._ya_cambio_automatico en SQL. */
 const yaCambioSolo = (libreta: string) =>
   leer<EventoAuditoria[]>(K.auditoria, []).some((e) => e.accion === 'celular_cambiado' && e.libreta === libreta && !!e.detalle?.startsWith('Cambio automático'))
@@ -171,6 +180,7 @@ export function crearLocal(): PublicoApi & AdminApi {
         pase: `${c}.${m}.${await firmaPase(sec, sesionId, c, m)}`,
         metodo: m === 'q' ? 'qr' : 'poster',
         expiraEn: (c * TOTP_PASO_S + PASE_TTL_S) * 1000,
+        ubicacion: modoUbicacion(sesionId),
       }
     },
 
@@ -304,7 +314,7 @@ export function crearLocal(): PublicoApi & AdminApi {
 
       // Igual que en SQL: en modo «exigir» se descuenta el margen de error del GPS (hasta 150 m); el ensayo queda exento.
       const distanciaM = p.ubicacion ? Math.round(haversine(p.ubicacion.lat, p.ubicacion.lng, SEDE.lat, SEDE.lng)) : null
-      if (GEO_MODO === 'exigir' && p.sesionId !== 'ensayo' && (distanciaM === null || distanciaM - Math.min(p.ubicacion?.precision ?? 0, 150) > SEDE.radioM))
+      if (modoUbicacion(p.sesionId) === 'exigir' && (distanciaM === null || distanciaM - Math.min(p.ubicacion?.precision ?? 0, 150) > SEDE.radioM))
         return fallo('FUERA_DE_RANGO', String(distanciaM ?? ''))
 
       // Otro celular o navegador: la primera vez se acepta y queda registrado; desde la segunda lo aprueba la cátedra.
@@ -314,6 +324,11 @@ export function crearLocal(): PublicoApi & AdminApi {
       } else if (!propio) {
         disp[p.huella] = { libreta: a.libreta, huella: p.huella, creadoEn: Date.now() }
         escribir(K.dispositivos, disp)
+      }
+
+      if (p.terminos && !a.libreta.startsWith('ENSAYO')) {
+        const t = leer<{ libreta: string; version: string; en: number }[]>(K.terminos, [])
+        if (!t.some((x) => x.libreta === a.libreta && x.version === p.terminos)) escribir(K.terminos, [...t, { libreta: a.libreta, version: p.terminos, en: Date.now() }])
       }
 
       const regs = leer<Registro[]>(K.registros, [])
@@ -472,6 +487,29 @@ export function crearLocal(): PublicoApi & AdminApi {
       return leer<EventoAuditoria[]>(K.auditoria, [])
         .filter((e) => e.accion === 'celular_cambiado' && e.libreta && e.detalle?.startsWith('Cambio automático'))
         .map((e) => ({ libreta: e.libreta!, en: e.en }))
+    },
+
+    async ajustes() {
+      return ajustesLocal()
+    },
+
+    async guardarAjustes(geoModo, ensayoUbicacion) {
+      const previo = ajustesLocal()
+      const nuevo = { geoModo: geoModo ?? previo.geoModo, ensayoUbicacion: ensayoUbicacion ?? previo.ensayoUbicacion }
+      escribir(K.ajustes, nuevo)
+      auditar({ accion: 'ajustes_cambiados', sesionId: null, libreta: null, detalle: `Ubicación ${nuevo.geoModo === 'exigir' ? 'obligatoria' : 'sólo se registra'}; ensayo ${nuevo.ensayoUbicacion ? 'con' : 'sin'} ubicación` })
+    },
+
+    async terminosAceptados() {
+      return leer<{ libreta: string; version: string; en: number }[]>(K.terminos, [])
+    },
+
+    async agregarAlumnos() {
+      throw new Error('En la demostración el padrón es fijo.')
+    },
+
+    async respaldo() {
+      return { demo: true, registros: leer(K.registros, []), auditoria: leer(K.auditoria, []) }
     },
 
     async conteos() {

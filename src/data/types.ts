@@ -1,4 +1,5 @@
 import type { Ventana } from '../lib/time'
+import type { ModoGeo } from '../lib/config'
 
 export interface Alumno {
   libreta: string
@@ -56,7 +57,8 @@ export type CodigoError =
 export type Fallo = { ok: false; error: CodigoError; detalle?: string }
 
 /** `ahora`: hora del servidor (epoch ms), para que el celular corrija su reloj. */
-export type ResultadoPase = { ok: true; pase: string; metodo: Metodo; expiraEn: number; ahora?: number } | Fallo
+/** `ubicacion`: si en esta clase la ubicación es obligatoria ('exigir') o sólo se registra. */
+export type ResultadoPase = { ok: true; pase: string; metodo: Metodo; expiraEn: number; ahora?: number; ubicacion?: ModoGeo } | Fallo
 
 export type ResultadoIdentificacion =
   | { ok: true; nombre: string; libreta: string; vinculo: 'este' | 'libre' | 'otro' }
@@ -89,6 +91,8 @@ export interface PedidoMarca {
   firma: string
   ts: number
   ubicacion: { lat: number; lng: number; precision: number } | null
+  /** Versión de los términos y condiciones que aceptó en este celular (queda registrada). */
+  terminos?: string | null
 }
 
 export type AccionAuditoria =
@@ -107,6 +111,8 @@ export type AccionAuditoria =
   | 'clase_reanudada'
   | 'celular_cambiado'
   | 'cambio_celular_rechazado'
+  | 'ajustes_cambiados'
+  | 'padron_actualizado'
 
 export type Rol = 'admin' | 'docente'
 
@@ -245,6 +251,16 @@ export interface AdminApi {
   /** Personas contadas en el aula por la cátedra (clave: id de la sesión). */
   conteos(): Promise<Record<string, number>>
   guardarConteo(sesionId: string, n: number | null): Promise<void>
+  /** Ubicación obligatoria o sólo registrada, y si el ensayo también la exige. */
+  ajustes(): Promise<AjustesUbicacion>
+  /** Cualquier docente (null deja ese ajuste como está). Queda en la auditoría. */
+  guardarAjustes(geoModo: 'exigir' | 'registrar' | null, ensayoUbicacion: boolean | null): Promise<void>
+  /** Aceptaciones de los términos y condiciones registradas al dar presente. */
+  terminosAceptados(): Promise<{ libreta: string; version: string; en: number }[]>
+  /** Sólo administradores: agrega alumnos al padrón o corrige nombre y DNI (por libreta). Nunca borra. */
+  agregarAlumnos(lista: { libreta: string; nombre: string; dni: string }[]): Promise<{ agregados: number; actualizados: number; errores: { libreta: string; error: string }[] }>
+  /** Sólo administradores: todos los datos del cursado, para guardar fuera del sistema. */
+  respaldo(): Promise<unknown>
   /** Errores que vieron los alumnos en una clase (sólo el código): de los últimos 10 minutos y en total. */
   fallos(sesionId: string): Promise<{ recientes: Record<string, number>; total: Record<string, number> }>
   /** Últimos cambios manuales: presentes cargados o quitados y celulares liberados. */
@@ -272,4 +288,9 @@ export interface AdminApi {
 
 declare global {
   const __DEMO__: boolean
+}
+
+export interface AjustesUbicacion {
+  geoModo: ModoGeo
+  ensayoUbicacion: boolean
 }
