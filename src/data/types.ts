@@ -22,6 +22,8 @@ export interface Registro {
   /** Sólo en cargas manuales: por qué se dio el presente y quién lo cargó. */
   motivo?: string | null
   cargadoPor?: string | null
+  /** Sólo en el panel: el alumno cambió de celular o navegador automáticamente al dar este presente. */
+  cambioCelular?: boolean
 }
 
 export interface ResumenSesion {
@@ -238,6 +240,11 @@ export interface AdminApi {
   responderConsulta(id: number, respuesta: string): Promise<void>
   /** Borra los presentes y fallos de la clase de ensayo y la cierra. Devuelve cuántos presentes borró. */
   terminarEnsayo(): Promise<number>
+  /** Cambios automáticos de celular (al dar presente desde otro celular o navegador): libreta y cuándo. */
+  cambiosAutomaticos(): Promise<{ libreta: string; en: number }[]>
+  /** Personas contadas en el aula por la cátedra (clave: id de la sesión). */
+  conteos(): Promise<Record<string, number>>
+  guardarConteo(sesionId: string, n: number | null): Promise<void>
   /** Errores que vieron los alumnos en una clase (sólo el código): de los últimos 10 minutos y en total. */
   fallos(sesionId: string): Promise<{ recientes: Record<string, number>; total: Record<string, number> }>
   /** Últimos cambios manuales: presentes cargados o quitados y celulares liberados. */

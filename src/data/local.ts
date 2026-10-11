@@ -30,6 +30,7 @@ function auditar(e: Omit<EventoAuditoria, 'en' | 'por'>) {
 
 const K = {
   auditoria: 'ciclo:v1:auditoria',
+  conteos: 'ciclo:v1:conteos',
   cuentas: 'ciclo:v1:cuentas',
   solicitudes: 'ciclo:v1:solicitudes',
   secretos: 'ciclo:v1:secretos',
@@ -111,6 +112,10 @@ async function validarPase(sesionId: string, pase: string): Promise<Metodo | Fal
 
 const limpiarDni = (d: string) => d.replace(/\D/g, '')
 
+/** Igual que public._ya_cambio_automatico en SQL. */
+const yaCambioSolo = (libreta: string) =>
+  leer<EventoAuditoria[]>(K.auditoria, []).some((e) => e.accion === 'celular_cambiado' && e.libreta === libreta && !!e.detalle?.startsWith('Cambio automático'))
+
 /** Igual que public._vincular en SQL: reemplaza el celular del alumno y limpia traspasos y pedidos. */
 function vincularLocal(libreta: string, huella: string, detalle: string, por: string) {
   const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
@@ -178,7 +183,7 @@ export function crearLocal(): PublicoApi & AdminApi {
       const ocupado = disp[huella]
       if (ocupado && ocupado.libreta !== a.libreta) return fallo('DISPOSITIVO_OCUPADO')
       const propio = Object.values(disp).find((d) => d.libreta === a.libreta)
-      return { ok: true, nombre: nombreCorto(a.nombre), libreta: libretaOculta(a.libreta), vinculo: !propio ? 'libre' : propio.huella === huella ? 'este' : 'otro' }
+      return { ok: true, nombre: nombreCorto(a.nombre), libreta: libretaOculta(a.libreta), vinculo: !propio ? 'libre' : propio.huella === huella ? 'este' : yaCambioSolo(a.libreta) ? 'otro' : 'libre' }
     },
 
     async iniciarTraspaso(dni, huella) {
@@ -296,12 +301,17 @@ export function crearLocal(): PublicoApi & AdminApi {
       const disp = leer<Record<string, DispositivoVinculado>>(K.dispositivos, {})
       if (disp[p.huella] && disp[p.huella].libreta !== a.libreta) return fallo('DISPOSITIVO_OCUPADO')
       const propio = Object.values(disp).find((d) => d.libreta === a.libreta)
-      if (propio && propio.huella !== p.huella) return fallo('DISPOSITIVO_AJENO')
 
+      // Igual que en SQL: en modo «exigir» se descuenta el margen de error del GPS (hasta 150 m); el ensayo queda exento.
       const distanciaM = p.ubicacion ? Math.round(haversine(p.ubicacion.lat, p.ubicacion.lng, SEDE.lat, SEDE.lng)) : null
-      if (GEO_MODO === 'exigir' && (distanciaM === null || distanciaM > SEDE.radioM)) return fallo('FUERA_DE_RANGO', String(distanciaM ?? ''))
+      if (GEO_MODO === 'exigir' && p.sesionId !== 'ensayo' && (distanciaM === null || distanciaM - Math.min(p.ubicacion?.precision ?? 0, 150) > SEDE.radioM))
+        return fallo('FUERA_DE_RANGO', String(distanciaM ?? ''))
 
-      if (!propio) {
+      // Otro celular o navegador: la primera vez se acepta y queda registrado; desde la segunda lo aprueba la cátedra.
+      if (propio && propio.huella !== p.huella) {
+        if (yaCambioSolo(a.libreta)) return fallo('DISPOSITIVO_AJENO')
+        vincularLocal(a.libreta, p.huella, 'Cambio automático al dar presente (otro celular o navegador)', 'el alumno')
+      } else if (!propio) {
         disp[p.huella] = { libreta: a.libreta, huella: p.huella, creadoEn: Date.now() }
         escribir(K.dispositivos, disp)
       }
@@ -456,6 +466,23 @@ export function crearLocal(): PublicoApi & AdminApi {
 
     async auditoria() {
       return leer<EventoAuditoria[]>(K.auditoria, [])
+    },
+
+    async cambiosAutomaticos() {
+      return leer<EventoAuditoria[]>(K.auditoria, [])
+        .filter((e) => e.accion === 'celular_cambiado' && e.libreta && e.detalle?.startsWith('Cambio automático'))
+        .map((e) => ({ libreta: e.libreta!, en: e.en }))
+    },
+
+    async conteos() {
+      return leer<Record<string, number>>(K.conteos, {})
+    },
+
+    async guardarConteo(sesionId, n) {
+      const c = leer<Record<string, number>>(K.conteos, {})
+      if (n === null) delete c[sesionId]
+      else c[sesionId] = n
+      escribir(K.conteos, c)
     },
 
     // Modo demo: cuentas de ejemplo guardadas en este navegador.

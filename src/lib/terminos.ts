@@ -3,11 +3,11 @@
 import { CATEDRA, UMBRAL_REGULARIDAD } from './config'
 
 /** Al cambiar el texto, cambiar la versión: todos lo vuelven a aceptar en su próximo presente. */
-export const TERMINOS_VERSION = '2026-10-07'
+export const TERMINOS_VERSION = '2026-10-14'
 
 /** Lo esencial, a la vista en la pantalla «¿Sos vos?». */
 export const TERMINOS_RESUMEN = [
-  'Soy el titular de este DNI y estoy presente en el aula.',
+  'Soy el titular de este DNI y estoy presente en el aula: para dar presente, la app verifica mi ubicación.',
   'El registro es personal: dar presente por otro o desde afuera es una falta y se anula.',
   'Si la app falla, aviso a la cátedra en la misma clase. La planilla oficial la lleva la cátedra.',
 ]
@@ -25,11 +25,11 @@ export const TERMINOS: { titulo: string; texto: string }[] = [
   },
   {
     titulo: 'Tu celular',
-    texto: 'El primer presente vincula tu celular a tu libreta. Sos responsable de su uso y de no prestarlo para dar presente por otras personas.',
+    texto: 'El primer presente vincula tu celular a tu libreta. Sos responsable de su uso y de no prestarlo para dar presente por otras personas. Si das presente desde otro celular o navegador, la primera vez el cambio se acepta y queda registrado; los siguientes los aprueba la cátedra.',
   },
   {
     titulo: 'Datos que se registran',
-    texto: 'Tu DNI (sólo para encontrarte en el padrón de la materia), tu nombre, la fecha y hora del presente, el método (QR, póster o enlace, o manual), un identificador técnico del celular, la dirección IP con fines de seguridad y, si lo permitís, la distancia aproximada al aula (nunca tu ubicación exacta). Se usan exclusivamente para el control de asistencia y la seguridad del registro, no se ceden a terceros y se conservan mientras sean necesarios para acreditar la regularidad. Podés ejercer tus derechos de acceso, rectificación y supresión (Ley 25.326 de Protección de los Datos Personales) ante la cátedra.',
+    texto: 'Tu DNI (sólo para encontrarte en el padrón de la materia), tu nombre, la fecha y hora del presente, el método (QR, póster o enlace, o manual), un identificador técnico del celular, la dirección IP con fines de seguridad y la distancia aproximada al aula, que la app necesita para verificar que estás en clase (se guarda sólo la distancia, nunca tu ubicación exacta). Se usan exclusivamente para el control de asistencia y la seguridad del registro, no se ceden a terceros y se conservan mientras sean necesarios para acreditar la regularidad. Podés ejercer tus derechos de acceso, rectificación y supresión (Ley 25.326 de Protección de los Datos Personales) ante la cátedra.',
   },
   {
     titulo: 'Disponibilidad y fallas técnicas',

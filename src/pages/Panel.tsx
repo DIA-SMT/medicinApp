@@ -165,7 +165,7 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           <p className={`mt-3 text-sm font-medium ${info.estado === 'abierta' ? 'text-vital' : 'text-slate-600'}`}>{estado}</p>
           {sospechosos > 0 && (
             <button onClick={() => onVer(s.id)} className="mt-2 flex items-center gap-1.5 text-xs font-medium text-ambar underline-offset-4 hover:underline">
-              <MapPin className="h-3.5 w-3.5" /> {sospechosos === 1 ? '1 presente sospechoso' : `${sospechosos} presentes sospechosos`} (lejos del aula o enlace sin ubicación) · revisar
+              <MapPin className="h-3.5 w-3.5" /> {sospechosos === 1 ? '1 presente sospechoso' : `${sospechosos} presentes sospechosos`} (lejos del aula, sin ubicación o con cambio de celular) · revisar y contar
             </button>
           )}
           {suspendidaHoy && (
@@ -210,6 +210,11 @@ function ClaseDeHoy({ registros, total, onManual, onVer }: { registros: Registro
           <button className="btn btn-fantasma" onClick={() => onVer(s.id)}>
             <ListChecks className="h-4 w-4 text-cian" /> Lista
           </button>
+          {esHoy && info.estado !== 'programada' && (
+            <button className="btn btn-fantasma" onClick={() => onVer(s.id)} title="Contar a las personas en el aula y compararlo con los presentes">
+              <Users className="h-4 w-4 text-cian" /> Contar el aula
+            </button>
+          )}
           <Link to={`/poster/${s.id}`} className="btn btn-fantasma">
             <Printer className="h-4 w-4" /> Póster
           </Link>
@@ -264,10 +269,12 @@ export function Panel() {
   const [generando, setGenerando] = useState(false)
 
   const cargar = useCallback(() => {
-    Promise.all([api.alumnos(), api.registros(), api.dispositivos()])
-      .then(([a, r, d]) => {
+    Promise.all([api.alumnos(), api.registros(), api.dispositivos(), api.cambiosAutomaticos().catch(() => [])])
+      .then(([a, r, d, c]) => {
+        // Un cambio automático pasa justo al dar presente: se lo asocia a la clase de ese día.
+        const cambios = new Set(c.map((x) => `${x.libreta}|${hoyIso(x.en)}`))
         setAlumnos(a)
-        setRegistros(r)
+        setRegistros(r.map((x) => (cambios.has(`${x.libreta}|${sesionPorId(x.sesionId)?.fecha ?? x.sesionId}`) ? { ...x, cambioCelular: true } : x)))
         setDispositivos(d)
       })
       .catch((e) => setError(String(e.message ?? e)))
@@ -1334,14 +1341,114 @@ function PedidosCelular({ pedidos, avisar, alCambiar }: { pedidos: PedidoCelular
 }
 
 /**
- * Por qué un presente merece una mirada (nunca se quita solo): dado lejos del aula, o con el código fijo
- * del póster/enlace (que se puede reenviar) sin permitir la ubicación.
+ * Por qué un presente merece una mirada (nunca se quita solo): dado lejos del aula, sin ubicación (no se pudo
+ * verificar dónde estaba), o desde otro celular o navegador que el que tenía vinculado.
  */
 function sospecha(r: Registro): string | null {
   if (r.metodo === 'manual') return null
-  if (lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM)) return `lejos del aula (${r.distanciaM! >= 1000 ? `${(r.distanciaM! / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM!)} m`})`
-  if (r.metodo === 'poster' && r.distanciaM == null) return 'póster o enlace sin ubicación'
-  return null
+  const motivos = [
+    lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) && `lejos del aula (${r.distanciaM! >= 1000 ? `${(r.distanciaM! / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM!)} m`})`,
+    r.distanciaM == null && 'sin ubicación',
+    r.cambioCelular && 'cambió de celular',
+  ].filter(Boolean)
+  return motivos.length ? motivos.join(' · ') : null
+}
+
+/** Conteo de personas en el aula, hecho por la cátedra a mano, comparado con los presentes registrados. */
+function ConteoAula({ sesion, presentes, avisar }: { sesion: Sesion; presentes: number; avisar: Avisar }) {
+  const api = useAdmin()
+  const [conteo, setConteo] = useState<number | null>(null)
+  const [texto, setTexto] = useState('')
+  const [editando, setEditando] = useState(false)
+  const [guardando, setGuardando] = useState(false)
+  useEffect(() => {
+    setConteo(null)
+    setEditando(false)
+    api
+      .conteos()
+      .then((c) => setConteo(c[sesion.id] ?? null))
+      .catch(() => {})
+  }, [api, sesion.id])
+
+  const guardar = async (n: number | null) => {
+    setGuardando(true)
+    try {
+      await api.guardarConteo(sesion.id, n)
+      setConteo(n)
+      setEditando(false)
+    } catch (e) {
+      avisar(`No se pudo guardar el conteo: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setGuardando(false)
+    }
+  }
+  const sobran = conteo !== null ? presentes - conteo : 0
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-linea px-4 py-3 text-sm">
+      <Users className="h-4 w-4 shrink-0 text-slate-400" />
+      {editando ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const n = Number(texto)
+            if (texto.trim() === '' || !Number.isInteger(n) || n < 0 || n > 1000) return avisar('Escribí cuántas personas contaste (un número entero).')
+            guardar(n)
+          }}
+        >
+          <span className="text-slate-600">Personas contadas en el aula:</span>
+          <input autoFocus inputMode="numeric" className="campo !w-24 !py-1.5" value={texto} onChange={(e) => setTexto(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+          <button className="btn btn-primario !py-1.5" disabled={guardando}>
+            Guardar
+          </button>
+          <button type="button" className="btn btn-secundario !py-1.5" onClick={() => setEditando(false)}>
+            Cancelar
+          </button>
+          {conteo !== null && (
+            <button type="button" className="text-xs text-slate-400 hover:text-rosa" onClick={() => guardar(null)} disabled={guardando}>
+              Borrar conteo
+            </button>
+          )}
+        </form>
+      ) : conteo === null ? (
+        <>
+          <span className="text-slate-500">¿Contaron a los alumnos en el aula? Cargá el número y la app lo compara con los presentes.</span>
+          <button
+            className="btn btn-secundario !py-1.5"
+            onClick={() => {
+              setTexto('')
+              setEditando(true)
+            }}
+          >
+            Cargar conteo
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="text-tinta">
+            <b className="tabular-nums">{conteo}</b> en el aula · <b className="tabular-nums">{presentes}</b> presentes
+          </span>
+          {sobran > 0 ? (
+            <span className="rounded-full bg-ambar-suave px-2 py-0.5 text-xs font-semibold text-ambar">
+              {sobran === 1 ? 'hay 1 presente más' : `hay ${sobran} presentes más`} que personas: revisá los sospechosos
+            </span>
+          ) : (
+            <span className="rounded-full bg-vital-suave px-2 py-0.5 text-xs font-medium text-vital">los presentes no superan el conteo</span>
+          )}
+          <button
+            className="text-xs text-slate-400 underline-offset-4 hover:text-tinta hover:underline"
+            onClick={() => {
+              setTexto(String(conteo))
+              setEditando(true)
+            }}
+          >
+            Corregir
+          </button>
+        </>
+      )}
+    </div>
+  )
 }
 
 type FiltroPresentes = 'todos' | 'qr' | 'poster' | 'manual' | 'sospechosos'
@@ -1599,7 +1706,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
     }
   }
 
-  // Filtros por método y «sospechosos» (lejos del aula, o póster/enlace sin ubicación): para revisar, nunca bloquean.
+  // Filtros por método y «sospechosos» (lejos del aula, sin ubicación o con cambio de celular): para revisar, nunca bloquean.
   const [filtro, setFiltro] = useState<FiltroPresentes>('todos')
   useEffect(() => setFiltro('todos'), [sesion.id])
   const cuenta: Record<FiltroPresentes, number> = {
@@ -1626,6 +1733,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
     <div className="tarjeta hud mt-4">
       <SuspensionClase sesion={sesion} esAdmin={esAdmin} presentes={regs.length} avisar={avisar} />
       <ValoracionClase sesion={sesion} />
+      <ConteoAula sesion={sesion} presentes={regs.length} avisar={avisar} />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-linea p-4">
         <SelectorSesion valor={sesion.id} onCambiar={onCambiar} />
         <div className="flex flex-wrap items-center gap-2">
@@ -1666,7 +1774,7 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                     ? 'border-ambar/40 bg-ambar-suave text-ambar'
                     : 'border-linea bg-white text-slate-600 hover:text-tinta'
               }`}
-              title={k === 'sospechosos' ? `Lejos del aula (más de ${SEDE.radioM} m, descontando el error del GPS) o póster/enlace sin ubicación` : undefined}
+              title={k === 'sospechosos' ? `Lejos del aula (más de ${SEDE.radioM} m, descontando el error del GPS), sin ubicación, o desde otro celular o navegador que el vinculado` : undefined}
             >
               {k === 'sospechosos' && <MapPin className="mr-1 inline h-3.5 w-3.5" />}
               {t} <span className="opacity-70">({cuenta[k]})</span>
@@ -1702,16 +1810,19 @@ function DetalleClase({ esAdmin, sesion, alumnos, registros, onCambiar, recargar
                   <td className="px-4 py-2 text-xs text-slate-500">
                     {r.metodo === 'manual' ? (
                       `${r.motivo ?? ''}${r.cargadoPor ? ` · ${r.cargadoPor}` : ''}`
-                    ) : r.distanciaM != null ? (
-                      <span className={lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) ? 'font-semibold text-ambar' : ''}>
-                        {r.distanciaM >= 1000 ? `${(r.distanciaM / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM)} m`} del aula
-                        {r.precisionM != null && <span className="font-normal text-slate-400"> (±{Math.round(r.precisionM)} m)</span>}
-                        {lejosDeSede(r.distanciaM, r.precisionM, SEDE.radioM) && ' · sospechoso'}
-                      </span>
-                    ) : sospecha(r) ? (
-                      <span className="font-semibold text-ambar">sin ubicación · sospechoso</span>
                     ) : (
-                      <span className="text-slate-400">sin ubicación</span>
+                      <span className={sospecha(r) ? 'font-semibold text-ambar' : ''}>
+                        {r.distanciaM != null ? (
+                          <>
+                            {r.distanciaM >= 1000 ? `${(r.distanciaM / 1000).toFixed(1)} km` : `${Math.round(r.distanciaM)} m`} del aula
+                            {r.precisionM != null && <span className="font-normal text-slate-400"> (±{Math.round(r.precisionM)} m)</span>}
+                          </>
+                        ) : (
+                          'sin ubicación'
+                        )}
+                        {r.cambioCelular && ' · cambió de celular'}
+                        {sospecha(r) && ' · sospechoso'}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
