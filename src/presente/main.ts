@@ -3,6 +3,7 @@
 import './presente.css'
 import { publico } from '../data/publico'
 import type { CodigoError, Progreso, ResultadoMarca } from '../data/types'
+import { suavizar } from './suavizar'
 import { CATEDRA, GEO_MODO, PASE_TTL_S, UMBRAL_REGULARIDAD, type ModoGeo } from '../lib/config'
 import { TERMINOS, TERMINOS_RESUMEN, TERMINOS_TITULO, TERMINOS_VERSION } from '../lib/terminos'
 import { CRONOGRAMA, DNIS_ENSAYO, sesionPorId, type Sesion } from '../lib/cronograma'
@@ -185,7 +186,7 @@ const ERRORES: Record<CodigoError, { titulo: string; texto: (d?: string) => stri
   CODIGO_INVALIDO: { titulo: 'Código vencido', texto: () => 'El QR proyectado cambia cada 20 segundos. Escaneá el que se ve ahora en pantalla (las capturas reenviadas no sirven).' },
   PASE_VENCIDO: { titulo: 'Se agotó el tiempo', texto: () => 'Pasaron más de 3 minutos desde que escaneaste. Volvé a escanear el QR del aula.' },
   DNI_DESCONOCIDO: { titulo: 'DNI no encontrado', texto: () => 'Ese DNI no figura en la planilla de la materia.' },
-  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Ya cambiaste de celular o de navegador una vez. Si volviste a cambiar, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra. Si es el mismo teléfono, abrí el QR con la misma app de siempre.' },
+  DISPOSITIVO_AJENO: { titulo: 'Tu presente se da desde otro celular', texto: () => 'Ya cambiaste de celular o de navegador una vez. Si volviste a cambiar, pasá tu presente a este celular: con el anterior en la mano es al instante; sin él, lo aprueba la cátedra. Si es el mismo teléfono, escaneá desde la página donde diste presente antes (botón «Escanear con la cámara»).' },
   NO_VALORABLE: { titulo: 'No se puede valorar', texto: (d) => d ?? 'Sólo se valoran las clases en las que diste presente, cuando terminan.' },
   CONSULTA_INVALIDA: { titulo: 'No se pudo enviar', texto: (d) => d ?? 'Revisá tu consulta y probá de nuevo.' },
   SIN_VINCULO: { titulo: 'Todavía no tenés celular vinculado', texto: () => 'No hace falta pedir nada: escaneá el QR en clase desde este celular y queda vinculado.' },
@@ -222,6 +223,7 @@ function mostrarError(sesion: Sesion | undefined, error: CodigoError, detalle?: 
       <div class="mt-6 flex flex-col gap-2">
         ${error === 'DISPOSITIVO_AJENO' ? '<a href="/p/?cambio=1" class="btn btn-primario w-full !py-3">Pasar mi presente a este celular</a>' : ''}
         ${e.reintentar && reintentar ? '<button id="reintentar" class="btn btn-primario w-full !py-3">Reintentar</button>' : ''}
+        ${sesion && hayCamara() && (error === 'CODIGO_INVALIDO' || error === 'PASE_VENCIDO') ? `<button id="reescanear" class="btn btn-primario w-full !py-3">${svg(I.camara, 'h-5 w-5')} Escanear de nuevo</button>` : ''}
         ${error === 'SUSPENDIDA' ? '<a href="/p/?mia=1" class="btn btn-secundario w-full">Ver mi asistencia</a>' : '<a href="/p/" class="btn btn-secundario w-full">Ingresar el código a mano</a>'}
         <a href="${enlaceElena(`Al dar el presente me apareció «${e.titulo}». ¿Qué hago?`)}" target="_blank" rel="noopener" class="mt-1 text-sm font-medium text-rosa underline-offset-4 hover:underline">¿Qué hago? Preguntale a Elena</a>
       </div>
@@ -229,6 +231,7 @@ function mostrarError(sesion: Sesion | undefined, error: CodigoError, detalle?: 
     </div>`,
   )
   document.getElementById('reintentar')?.addEventListener('click', () => reintentar?.())
+  document.getElementById('reescanear')?.addEventListener('click', () => sesion && escanear(sesion))
   if (auto) temporizador = setTimeout(reintentar!, Math.max(0, abre - Date.now()) + 1500)
 }
 
@@ -323,7 +326,8 @@ function exito(sesion: Sesion, r: Extract<ResultadoMarca, { ok: true }>) {
       <p class="mt-1 text-lg text-slate-600">${esc(r.nombre)}</p>
       <div class="mt-3 font-mono text-5xl font-semibold text-vital tabular-nums">${horaArt(r.marcadoEn)}</div>
       ${sesion.ensayo ? '<p class="mt-5 rounded-2xl border border-ambar/30 bg-ambar-suave px-4 py-3 text-sm text-ambar">Fue un ensayo: no cuenta para tu asistencia y no quedó guardado en este celular.</p>' : r.progreso ? progresoCorto(r.progreso) : ''}
-      <p class="mt-5 text-slate-600">Listo, podés cerrar esta pantalla. La próxima clase alcanza con escanear.</p>
+      <p class="mt-5 text-slate-600">Listo, podés cerrar esta pantalla.</p>
+      ${sesion.ensayo ? '' : `<div class="mt-4 rounded-2xl border border-cian/30 bg-cian-suave px-4 py-3 text-left text-sm text-slate-700"><b class="text-tinta">Para la próxima clase:</b> guardá esta página en favoritos (<b>${esc(location.host)}/p/</b>). En el aula abrila y tocá <b>«Escanear con la cámara»</b>: así tu celular se reconoce siempre, sin importar con qué app se abra el QR.</div>`}
       <a href="/p/?mia=1" class="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-rosa underline-offset-4 hover:underline">${svg(I.calendario, 'h-4 w-4')} Ver todas mis clases</a>
       <p class="mt-4 font-mono text-[0.65rem] tracking-wider text-slate-400">Comprobante ${esc(r.comprobante)}</p>
     </div>`,
@@ -857,7 +861,7 @@ async function registrar(sesion: Sesion, codigo: string) {
       if (r.error === 'DNI_DESCONOCIDO') {
         guardar(CLAVE_DNI, null)
         guardar(CLAVE_NOMBRE, null)
-        return pedirDni('Ese DNI no figura en la planilla de Ginecología. Revisalo.')
+        return pedirDni(`Escribiste ${dni.replace(/\B(?=(\d{3})+(?!\d))/g, '.')} y no figura en la planilla de Ginecología. Revisá que estén bien todos los números de tu documento.`)
       }
       return mostrarError(sesion, r.error, r.detalle, () => identificar(dni, automatico))
     }
@@ -975,12 +979,15 @@ async function registrar(sesion: Sesion, codigo: string) {
   else pedirDni()
 }
 
-// ── Escáner dentro de la página (sólo donde el navegador trae BarcodeDetector: Chrome en Android) ──
+// ── Escáner dentro de la página ──
+// Escanear desde acá (y no con la cámara del celular) abre siempre el mismo navegador: el celular se reconoce
+// siempre. Chrome en Android trae BarcodeDetector; en iPhone y el resto se usa jsQR (se carga sólo al escanear).
 
 type Detector = { detect(v: HTMLVideoElement): Promise<{ rawValue: string }[]> }
 const BarcodeDetector = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => Detector }).BarcodeDetector
+const hayCamara = () => !!navigator.mediaDevices?.getUserMedia && window.isSecureContext
 
-async function escanear(sesion: Sesion) {
+async function escanear(sesion?: Sesion) {
   pintar(
     sesion,
     `<div class="tarjeta hud overflow-hidden">
@@ -1007,11 +1014,37 @@ async function escanear(sesion: Sesion) {
     parar()
     pedirCodigo()
   })
-  const detector = new BarcodeDetector!({ formats: ['qr_code'] })
+  let detector: Detector | null = null
+  try {
+    if (BarcodeDetector) detector = new BarcodeDetector({ formats: ['qr_code'] })
+  } catch {
+    /* sin soporte para QR: jsQR */
+  }
+  const jsQR = detector ? null : (await import('jsqr')).default
+  let cuadro = 0
+  const lienzo = document.createElement('canvas')
+  const ctx = lienzo.getContext('2d', { willReadFrequently: true })
+  const leerCuadro = async (): Promise<string[]> => {
+    if (detector) return (await detector.detect(video)).map((x) => x.rawValue)
+    const w = video.videoWidth
+    const h = video.videoHeight
+    if (!w || !h || !ctx || !jsQR) return []
+    // Achicado a ~640 px: alcanza para el QR del proyector y no traba celulares modestos.
+    const k = Math.min(1, 640 / Math.max(w, h))
+    lienzo.width = Math.round(w * k)
+    lienzo.height = Math.round(h * k)
+    ctx.drawImage(video, 0, 0, lienzo.width, lienzo.height)
+    const img = ctx.getImageData(0, 0, lienzo.width, lienzo.height)
+    // Un cuadro suavizado y otro tal cual, alternando: el suavizado lee con poca luz o proyector lavado.
+    cuadro++
+    const datos = cuadro % 2 ? suavizar(img.data, img.width, img.height) : img.data
+    const r = jsQR(datos, img.width, img.height, { inversionAttempts: 'dontInvert' })
+    return r ? [r.data] : []
+  }
   const buscar = async () => {
     if (!video.isConnected) return parar()
     try {
-      for (const { rawValue } of await detector.detect(video)) {
+      for (const rawValue of await leerCuadro()) {
         const u = new URL(rawValue, location.href)
         const s = u.searchParams.get('s')
         const c = u.searchParams.get('c')
@@ -1025,7 +1058,7 @@ async function escanear(sesion: Sesion) {
     } catch {
       /* cuadro sin QR legible: se sigue buscando */
     }
-    setTimeout(buscar, 200)
+    setTimeout(buscar, detector ? 200 : 120)
   }
   buscar()
 }
@@ -1056,11 +1089,13 @@ function pedirCodigo(aviso?: string) {
                <div class="mt-4 rounded-2xl bg-cian-suave px-4 py-3 text-center"><div class="etiqueta !text-cian-oscuro">El registro abre en</div><div class="mt-1 font-mono text-3xl font-semibold text-cian-oscuro tabular-nums" data-hasta="${abre}" data-fin="¡Ya abrió!">${cuenta(abre - Date.now())}</div></div>`
             : '<p class="mt-2 text-slate-600">Ya terminaron las teóricas de este cursado.</p>'
         }
-        <p class="mt-4 text-sm text-slate-500">Para dar presente escaneá el QR del aula con la cámara del celular.</p>
+        <p class="mt-4 text-sm text-slate-500">Para dar presente escaneá el QR del aula desde esta página: guardala en favoritos.</p>
+        ${hayCamara() ? `<button type="button" id="cam" class="btn btn-secundario mt-4 w-full">${svg(I.camara, 'h-5 w-5')} Escanear un QR</button>` : ''}
         ${enlaceMiAsistencia()}
       </div>
       <div id="recordar-valoracion"></div>`,
     )
+    document.getElementById('cam')?.addEventListener('click', () => escanear())
     recordarValoracion()
     return
   }
@@ -1069,18 +1104,19 @@ function pedirCodigo(aviso?: string) {
     `<form id="f" class="tarjeta hud p-6">
       <div class="grid h-12 w-12 place-items-center rounded-2xl bg-rosa-suave text-rosa">${svg(I.qr)}</div>
       <h1 class="mt-4 text-2xl font-semibold text-tinta">Dar presente</h1>
-      <p class="mt-1 text-slate-600">Escaneá el QR que se proyecta en el aula.</p>
-      ${BarcodeDetector ? `<button type="button" id="cam" class="btn btn-primario mt-5 w-full !py-3.5 text-base">${svg(I.camara, 'h-5 w-5')} Escanear con la cámara</button><div class="my-4 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-linea"></span>o el código de abajo del QR<span class="h-px flex-1 bg-linea"></span></div>` : '<p class="mt-4 text-sm text-slate-500">¿La cámara no lo lee? Escribí el código de 6 números que está debajo del QR.</p>'}
-      <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="7" class="campo ${BarcodeDetector ? '' : 'mt-5'} text-center font-mono text-3xl tracking-[0.4em]" aria-label="Código de 6 dígitos" />
+      <p class="mt-1 text-slate-600">Escaneá el QR que se proyecta en el aula desde acá: así tu celular se reconoce siempre.</p>
+      ${hayCamara() ? `<button type="button" id="cam" class="btn btn-primario mt-5 w-full !py-3.5 text-base">${svg(I.camara, 'h-5 w-5')} Escanear con la cámara</button><div class="my-4 flex items-center gap-3 text-xs text-slate-400"><span class="h-px flex-1 bg-linea"></span>o el código de abajo del QR<span class="h-px flex-1 bg-linea"></span></div>` : '<p class="mt-4 text-sm text-slate-500">¿La cámara no lo lee? Escribí el código de 6 números que está debajo del QR.</p>'}
+      <input id="cod" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" maxlength="7" class="campo ${hayCamara() ? '' : 'mt-5'} text-center font-mono text-3xl tracking-[0.4em]" aria-label="Código de 6 dígitos" />
       ${aviso ? `<p class="mt-2 text-sm text-rosa-oscuro">${esc(aviso)}</p>` : ''}
-      <button id="ok" class="btn ${BarcodeDetector ? 'btn-secundario' : 'btn-primario'} mt-4 w-full !py-3.5 text-base" disabled>Validar código</button>
+      <button id="ok" class="btn ${hayCamara() ? 'btn-secundario' : 'btn-primario'} mt-4 w-full !py-3.5 text-base" disabled>Validar código</button>
     </form>
     ${enlaceMiAsistencia()}`,
   )
   const input = document.getElementById('cod') as HTMLInputElement
   const ok = document.getElementById('ok') as HTMLButtonElement
   document.getElementById('cam')?.addEventListener('click', () => escanear(sesion))
-  if (!BarcodeDetector) input.focus()
+  if (hayCamara() && !BarcodeDetector) import('jsqr').catch(() => {})
+  if (!hayCamara()) input.focus()
   input.addEventListener('input', () => {
     input.value = soloDigitos(input.value).slice(0, 6)
     ok.disabled = input.value.length !== 6

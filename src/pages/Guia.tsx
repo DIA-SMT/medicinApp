@@ -17,7 +17,7 @@ const PASOS: { titulo: string; items: string[] }[] = [
   {
     titulo: 'Durante la clase',
     items: [
-      'Los alumnos escanean el QR con la cámara, permiten la ubicación y listo: los presentes suben solos al proyector.',
+      'Los alumnos escanean el QR, permiten la ubicación y listo: los presentes suben solos al proyector. Recomendales escanear desde la página guardada («Escanear con la cámara»): así el celular se reconoce siempre.',
       'Contá a las personas en el aula y cargá el número en «Contar el aula»: la app lo compara con los presentes.',
       'Quien no pueda (sin batería, sin celular, falla técnica): «Presente manual» con el motivo, en la misma clase.',
       'Si muchos no pueden verificar la ubicación (el panel avisa), tocá «Desactivar» en la tarjeta de la clase: el presente se da igual y los que estén lejos quedan marcados.',
@@ -40,7 +40,7 @@ const PASOS: { titulo: string; items: string[] }[] = [
 
 const PROBLEMAS: [string, string][] = [
   ['«No pudimos verificar que estés en el aula»', 'Que active la ubicación del celular; si el navegador la bloqueó: candado junto a la dirección → Permisos → Ubicación → Permitir. Reintentar. Si no puede, presente manual.'],
-  ['«Tu presente se da desde otro celular»', 'Que abra el QR con la misma app de siempre (la cámara). Si cambió de teléfono: «Pasar mi presente a este celular» y lo aprobás en «Dispositivos».'],
+  ['«Tu presente se da desde otro celular»', 'Que abra la página donde dio presente antes y escanee desde ahí («Escanear con la cámara»). Si cambió de teléfono: «Pasar mi presente a este celular» y lo aprobás en «Dispositivos».'],
   ['«Este celular ya registró a otra persona»', 'Cada celular sirve para un solo alumno: que use el suyo, o presente manual.'],
   ['«Código vencido»', 'El QR cambia cada 20 segundos: que escanee el que se ve ahora (las capturas reenviadas no sirven).'],
   ['«Registro cerrado»', `El registro cierra a las ${CIERRE_DEFAULT}. Si estuvo en clase, presente manual.`],
