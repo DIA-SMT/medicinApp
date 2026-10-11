@@ -49,14 +49,14 @@
       "permanent": false
     },
     {
-      "source": "/p/:ruta*",
+      "source": "/p/(.*)",
       "has": [
         {
           "type": "host",
           "value": "ginecoapp.com.ar"
         }
       ],
-      "destination": "https://medicinapp.vercel.app/p/:ruta*",
+      "destination": "https://medicinapp.vercel.app/p/$1",
       "permanent": false
     },
     {
@@ -71,14 +71,14 @@
       "permanent": false
     },
     {
-      "source": "/p/:ruta*",
+      "source": "/p/(.*)",
       "has": [
         {
           "type": "host",
           "value": "www.ginecoapp.com.ar"
         }
       ],
-      "destination": "https://medicinapp.vercel.app/p/:ruta*",
+      "destination": "https://medicinapp.vercel.app/p/$1",
       "permanent": false
     }
   ]
